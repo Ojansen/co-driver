@@ -5,12 +5,15 @@ export default defineWebSocketHandler({
   open(peer) {
     peer.send(JSON.stringify({ type: 'hello' }))
 
-    const onTelemetry = (t: Telemetry) => {
-      peer.send(JSON.stringify({ type: 'telemetry', t }))
+    const safeSend = (payload: unknown) => {
+      try {
+        peer.send(JSON.stringify(payload))
+      } catch {
+        // peer already gone — close handler will detach the listeners.
+      }
     }
-    const onDebug = (d: DebugFrame) => {
-      peer.send(JSON.stringify({ type: 'debug', d }))
-    }
+    const onTelemetry = (t: Telemetry) => safeSend({ type: 'telemetry', t })
+    const onDebug = (d: DebugFrame) => safeSend({ type: 'debug', d })
 
     forzaBus.on('telemetry', onTelemetry)
     forzaBus.on('debug', onDebug)

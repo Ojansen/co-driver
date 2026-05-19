@@ -2,7 +2,24 @@ import dgram from 'node:dgram'
 import { decodeCarDash } from '../utils/decode'
 import { forzaBus } from '../utils/forza-bus'
 
+// ECONNRESET on the WebSocket upgrade socket bubbles up as an
+// unhandledRejection when a browser tab is closed abruptly. It's harmless —
+// the close handler detaches the bus listener regardless. Filter it so
+// the logs stay readable.
+let rejectionGuardInstalled = false
+function installRejectionGuard() {
+  if (rejectionGuardInstalled) return
+  rejectionGuardInstalled = true
+  process.on('unhandledRejection', (reason) => {
+    const code = (reason as { code?: string } | null | undefined)?.code
+    if (code === 'ECONNRESET' || code === 'EPIPE') return
+    console.error('[forza] unhandled rejection', reason)
+  })
+}
+
 export default defineNitroPlugin(() => {
+  installRejectionGuard()
+
   const port = Number(process.env.FORZA_PORT ?? 5300)
   const bind = process.env.FORZA_BIND ?? '0.0.0.0'
 
