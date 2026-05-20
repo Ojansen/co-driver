@@ -94,9 +94,16 @@ function signedFixed(v: number, digits: number): string {
     <!-- Top: gear + speed -->
     <div class="flex items-start justify-between">
       <div>
-        <div class="text-xs uppercase tracking-[0.2em] text-zinc-400">
-          GEAR
-        </div>
+        <NuxtLink
+          to="/tune/gearing"
+          class="group inline-flex items-center gap-1 text-xs uppercase tracking-[0.2em] text-zinc-400 transition-colors hover:text-green-300"
+        >
+          <span>GEAR</span>
+          <UIcon
+            name="i-lucide-arrow-up-right"
+            class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-70"
+          />
+        </NuxtLink>
         <div class="text-8xl leading-none font-light tabular-nums">
           {{ gearLabel(gear) }}
         </div>
@@ -114,7 +121,16 @@ function signedFixed(v: number, digits: number): string {
     <!-- Middle: RPM linear bar -->
     <div class="mt-5">
       <div class="flex justify-between text-sm text-zinc-400">
-        <span>RPM</span>
+        <NuxtLink
+          to="/tune/gearing"
+          class="group inline-flex items-center gap-1 transition-colors hover:text-green-300"
+        >
+          <span>RPM</span>
+          <UIcon
+            name="i-lucide-arrow-up-right"
+            class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-70"
+          />
+        </NuxtLink>
         <span class="tabular-nums text-base text-zinc-200">{{ Math.round(rpm) }} <span class="text-zinc-500">/ {{ Math.round(rpmMax) }}</span></span>
       </div>
       <svg
@@ -173,7 +189,16 @@ function signedFixed(v: number, digits: number): string {
         <span class="w-10 text-right tabular-nums text-zinc-200">{{ Math.round(throttle * 100) }}</span>
       </div>
       <div class="flex items-center gap-2 text-sm text-zinc-400">
-        <span class="w-16">BRAKE</span>
+        <NuxtLink
+          to="/tune/brakes"
+          class="group inline-flex w-16 items-center gap-1 transition-colors hover:text-green-300"
+        >
+          <span>BRAKE</span>
+          <UIcon
+            name="i-lucide-arrow-up-right"
+            class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-70"
+          />
+        </NuxtLink>
         <div class="h-2.5 flex-1 overflow-hidden rounded bg-zinc-800">
           <div
             class="h-full bg-red-500"
@@ -371,11 +396,29 @@ function signedFixed(v: number, digits: number): string {
       <!-- Attitude + rotation readouts -->
       <div class="grid flex-1 grid-cols-2 gap-x-4 gap-y-3 self-center text-sm">
         <div class="flex items-center justify-between text-zinc-400">
-          <span>ROLL</span>
+          <NuxtLink
+            to="/tune/anti-roll-bars"
+            class="group inline-flex items-center gap-1 transition-colors hover:text-green-300"
+          >
+            <span>ROLL</span>
+            <UIcon
+              name="i-lucide-arrow-up-right"
+              class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-70"
+            />
+          </NuxtLink>
           <span class="text-lg tabular-nums text-zinc-100">{{ signedFixed(radToDeg(roll), 1) }}°</span>
         </div>
         <div class="flex items-center justify-between text-zinc-400">
-          <span>PITCH</span>
+          <NuxtLink
+            to="/tune/dampers"
+            class="group inline-flex items-center gap-1 transition-colors hover:text-green-300"
+          >
+            <span>PITCH</span>
+            <UIcon
+              name="i-lucide-arrow-up-right"
+              class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-70"
+            />
+          </NuxtLink>
           <span class="text-lg tabular-nums text-zinc-100">{{ signedFixed(radToDeg(pitch), 1) }}°</span>
         </div>
         <div class="flex items-center justify-between text-zinc-400">

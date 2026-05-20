@@ -71,7 +71,16 @@ const trailPath = computed(() => {
     <!-- Suspension bar -->
     <div class="mt-3">
       <div class="flex items-center justify-between text-sm text-zinc-400">
-        <span>SUSP</span>
+        <NuxtLink
+          to="/tune/springs"
+          class="group inline-flex items-center gap-1 transition-colors hover:text-green-300"
+        >
+          <span>SUSP</span>
+          <UIcon
+            name="i-lucide-arrow-up-right"
+            class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-70"
+          />
+        </NuxtLink>
         <span class="tabular-nums">
           <span class="text-zinc-500">{{ (suspensionMeters * 1000).toFixed(0) }}<span class="text-[11px]">mm</span></span>
           <span class="ml-2 text-base text-zinc-200">{{ suspension.toFixed(2) }}</span>
@@ -141,7 +150,16 @@ const trailPath = computed(() => {
          grip limit (outer ring = 1.0). Working-zone ring is dashed at 0.7. -->
     <div class="mt-4">
       <div class="flex items-center justify-between text-sm">
-        <span class="text-zinc-400">FRICTION</span>
+        <NuxtLink
+          to="/tune/alignment"
+          class="group inline-flex items-center gap-1 text-zinc-400 transition-colors hover:text-green-300"
+        >
+          <span>FRICTION</span>
+          <UIcon
+            name="i-lucide-arrow-up-right"
+            class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-70"
+          />
+        </NuxtLink>
         <span
           class="text-base tabular-nums"
           :style="{ color: combinedColor }"
@@ -225,7 +243,16 @@ const trailPath = computed(() => {
         :style="{ background: temp }"
       />
       <span class="text-base tabular-nums">{{ tempC.toFixed(0) }}<span class="text-zinc-500 text-xs">°C</span></span>
-      <span class="ml-auto text-xs uppercase tracking-wider text-zinc-500">TIRE</span>
+      <NuxtLink
+        to="/tune/tire-pressure"
+        class="group ml-auto inline-flex items-center gap-1 text-xs uppercase tracking-wider text-zinc-500 transition-colors hover:text-green-300"
+      >
+        <span>TIRE</span>
+        <UIcon
+          name="i-lucide-arrow-up-right"
+          class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-70"
+        />
+      </NuxtLink>
     </div>
   </div>
 </template>
