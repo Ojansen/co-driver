@@ -15,7 +15,7 @@ Runs entirely on the user's machine. No accounts, no cloud, no analytics. The ga
 - **bun** as package manager + runtime for dev (matches Helios / Cozy Hub)
 - **Playwright + Vitest** for tests (corner-view rendering snapshot, decoder unit tests)
 
-No database in v1. Session capture (v2) writes per-lap JSON to disk under `./sessions/`.
+v1 has no database. v3 introduces persistent capture into **drizzle + libsql** via `@nuxthub/db`, with one gzipped frames blob per lap. See §8 for the full data model.
 
 ---
 
@@ -213,17 +213,22 @@ The "feels cool" RPM/boost dashboard is fun but doesn't change a setup decision.
 - 10-second sliding window
 - Pause/scrub for post-corner analysis
 
-### v3 — Lap recorder + delta
-- Auto-detect lap boundaries via `LapNumber` change
-- Capture every packet of a lap to `./sessions/<date>/<car>/<lap-id>.json`
-- "Set best" button — afterwards, live delta line drawn vs best
-- Track map: plot `(PositionX, PositionZ)` colored by current speed
+### v3 — Event-scoped session recorder
+- User-defined events, scoped by FH5 event type (rally / race / street race / cross country / drag / freeroam)
+- Manual Start/Stop recording from the dashboard (no auto-detect on `IsRaceOn`)
+- Persistent storage in drizzle + libsql: `events`, `cars`, `sessions`, `laps` (gzipped frames blob per lap)
+- PI-shift tune-label prompt so before/after-tune comparison works on the same car + event
+- Pages: `/events` → 6 type tiles → event detail with leaderboard + history + Start button; `/live` keeps the corner view
+- Replay any captured lap by re-driving the corner view + trace strip from its frames blob
+- **Full spec in §8**
 
 ### v4 — Tuning workbench
-- Pick a captured lap and overlay traces from a second lap
-- Compute per-sector deltas (sector boundaries by distance)
+- Overlay traces from two captured laps (same event, different car/tune)
+- Per-sector deltas, sector boundaries derived from distance along the route
 - "Bottoming events" list — every frame where `normalizedTravel > 0.95`, with the speed / steering at that frame
 - Tire-temp histogram per lap
+- Track map: plot `(PositionX, PositionZ)` colored by current speed
+- Decodes the v3 frames blobs on demand for analytics
 
 ### v5 (maybe) — Hardware shift light
 - Tiny serial bridge from the Nitro server to a USB-attached RP2040 or Arduino
@@ -477,7 +482,166 @@ const tempColor = computed(() => {
 
 ---
 
-## 8. What I won't build
+## 8. v3 — Event-scoped session recorder
+
+The lap recorder builds on the v1/v2 live view by adding **structured, queryable persistence** so you can: see best lap per event, group laps by car or tune, validate tuning changes against prior runs, and replay any saved lap by re-driving the existing corner view + trace strip.
+
+Locked in 2026-05-19 — what follows is the agreed shape, not a wish list.
+
+### 8.1 Goals
+
+- **Validate tunes.** Run an event, change a car's tune, run it again, compare lap times and traces on the same event. The tuning feedback loop is the whole point of the tool; the recorder closes it.
+- **Group by event.** "Best time on Goliath", "best time on this rally route" — a leaderboard scoped to a named user-defined event.
+- **Group by car.** Per-car history across events and tunes.
+- **Free-roam recordings, too.** Open-world test drives ("Highway A test", "Mulege coastal run") use the same machinery; they live under the `freeroam` event type, where lap times are inherently looser.
+
+Explicitly *not* in v3: live deltas against best lap (deferred), automatic sector detection (v4), or coaching overlays (won't build, see §9).
+
+### 8.2 Data model
+
+Stored in **drizzle + libsql** via `@nuxthub/db`. Schema in `server/db/schema.ts`; migrations generated via `npx nuxt db generate` and applied with `npx nuxt db migrate` (per `CLAUDE.md`). No hand-written SQL.
+
+```ts
+// shape only — the real definitions live in server/db/schema.ts
+export const eventType = ['rally','race','street_race','cross_country','drag','freeroam'] as const
+
+export const events = sqliteTable('events', {
+  id:        integer('id').primaryKey({ autoIncrement: true }),
+  name:      text('name').notNull(),
+  type:      text('type', { enum: eventType }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().defaultNow(),
+}, t => ({
+  unqNameType: uniqueIndex('events_name_type_unq').on(t.name, t.type),
+}))
+
+export const cars = sqliteTable('cars', {
+  id:          integer('id').primaryKey({ autoIncrement: true }),
+  ordinal:     integer('ordinal').notNull().unique(),   // CarOrdinal from the packet
+  class:       integer('class').notNull(),              // CarClass 0..7
+  displayName: text('display_name'),                    // user-editable; null → "#<ordinal>"
+})
+
+export const sessions = sqliteTable('sessions', {
+  id:        integer('id').primaryKey({ autoIncrement: true }),
+  eventId:   integer('event_id').notNull().references(() => events.id),
+  carId:     integer('car_id').notNull().references(() => cars.id),
+  tuneLabel: text('tune_label'),                        // null until user names the tune
+  piAtStart: integer('pi_at_start').notNull(),          // CarPerformanceIndex snapshot
+  startedAt: integer('started_at', { mode: 'timestamp' }).notNull(),
+  endedAt:   integer('ended_at',   { mode: 'timestamp' }),
+})
+
+export const laps = sqliteTable('laps', {
+  id:         integer('id').primaryKey({ autoIncrement: true }),
+  sessionId:  integer('session_id').notNull().references(() => sessions.id),
+  lapNumber:  integer('lap_number').notNull(),
+  timeMs:     integer('time_ms').notNull(),
+  framesBlob: blob('frames_blob').notNull(),            // gzipped JSON — see §8.6
+})
+```
+
+### 8.3 Recording state machine — server-owned
+
+The UDP listener already lives server-side and recording must survive a browser refresh, so the recorder lives in Nitro too. The browser only sends commands and renders state.
+
+```
+       start{event_id, tune_label?}             stop
+IDLE ─────────────────────────────────► RECORDING ─────► IDLE
+                                              │
+                                  LapNumber  │
+                                  change     │
+                                  ▼          │
+                       flush buffered frames │
+                       → new laps row,       │
+                       reset frame buffer    │
+```
+
+- **IDLE → RECORDING:** open a `sessions` row with `pi_at_start` from the latest telemetry; insert the car if new (key on `ordinal`). Begin buffering decoded frames in memory.
+- **LapNumber change while RECORDING:** flush the frame buffer as the just-completed lap (`laps` row with `time_ms = LastLap` from the new packet, frames gzipped into `frames_blob`). Reset the buffer.
+- **RECORDING → IDLE (Stop):** **discard the partial lap** (any frames since the last `LapNumber` tick). Finalize the session row with `ended_at`. If `pi_at_start` differs from this car's previous session, queue a `tune_prompt`.
+
+### 8.4 WS protocol additions
+
+The existing outbound `telemetry` stream is unchanged.
+
+New inbound:
+```ts
+{ kind: 'start', eventId: number, tuneLabel?: string | null }
+{ kind: 'stop' }
+```
+
+New outbound:
+```ts
+{ kind: 'recording_state', state: 'idle' } |
+{ kind: 'recording_state', state: 'recording', sessionId: number, eventId: number,
+                           carOrdinal: number, lapsCompleted: number } |
+{ kind: 'tune_prompt', sessionId: number, carOrdinal: number,
+                       previousPi: number, currentPi: number }
+```
+
+`recording_state` is broadcast on every transition so multiple tabs stay in sync. `tune_prompt` fires once when a session ends with a PI shift; any tab can answer it.
+
+### 8.5 Navigation
+
+```
+/                     → redirect to /events
+/live                 → the v1+v2 corner view + trace strip (the "second screen")
+                        Shows a small "● REC" badge when state=recording.
+/events               → six type tiles (rally / race / street race / cross country / drag / freeroam)
+                        with event counts. Plus a global "Quick record" button.
+/events/:type         → list of events of that type, with last-driven date and best-lap-of-event preview.
+                        Inline "New event" entry.
+/events/:type/:id     → event detail:
+                          • leaderboard (best lap per car × tune)
+                          • session history table
+                          • "Start recording" button (event pre-selected)
+/events/:type/:id/:sessionId
+                      → session detail: lap table with per-lap "▶ Replay" button.
+                        Replay re-drives the corner view from the lap's frames_blob.
+```
+
+"Quick record" is a modal version of the same picker, available from any page — for when the user is already on `/live` and doesn't want to navigate back.
+
+### 8.6 Frame storage — per-lap blob
+
+A 2-minute lap at the 30 Hz WS rate is ~3600 frames. Storing them as rows would explode row counts across many sessions without buying any query power — frames are only ever read back as a whole for replay.
+
+So: **one gzipped blob per `laps` row**. Encoded as a JSON array of decoded `Telemetry` objects, gzipped at lap finalization, written once. Replay decompresses and streams the array at the original timestamps. v4 analytics (bottoming events, slip histograms) decode the blob on demand.
+
+The recorder captures frames at the same 30 Hz the WS feed uses — display Hz and capture Hz are the same in v3. If we ever want 60 Hz capture (v4+), the UDP listener can fork a higher-rate path into the recorder without touching the WS rate.
+
+### 8.7 Lap timing — trust the in-game signal
+
+When `LapNumber` advances, the new packet's `LastLap` field holds the just-completed lap time in seconds. Convert to ms, store. Same code path for **all event types** — circuits, drags, rallies, free roam.
+
+**Caveat to verify empirically:** FH5 may not tick `LapNumber` for drag / rally / cross-country / freeroam (point-to-point or unbounded events). If we observe that in-game, fall back per type: when the user clicks Stop and `LapNumber` never advanced, treat the entire Start→Stop window as one completed lap with `time_ms = endedAt - startedAt`. Add this fallback only after observing the missing tick — don't pre-build it.
+
+### 8.8 Tune-label flow
+
+`CarPerformanceIndex` is in the packet; the tune label is not. So:
+
+1. At session start, snapshot `pi_at_start`.
+2. On session end, compare to the most recent prior session for the same `car_id`. If different, emit `tune_prompt`.
+3. UI shows a non-blocking modal: "PI went 745 → 758 — did you re-tune? Name this tune:" with a text input + autocomplete from prior tune labels for this car.
+4. `tune_label` is editable from any session detail page at any time.
+
+PI shift is a *signal*, not a guarantee — the user might tune without changing PI (within the same class) or change PI without considering it a new tune. Manual override is always available.
+
+### 8.9 Decisions (resolved 2026-05-19)
+
+Continuing the §6 list:
+
+7. **Persistence**: drizzle + libsql via `@nuxthub/db`, not the file-per-lap JSON sketched in the original §5 v3 entry. The relational queries this enables — best lap per event, tune A vs tune B on the same car — are the whole point of the feature.
+8. **Recording trigger**: **manual Start/Stop** from the dashboard, not auto-detection on `IsRaceOn` edges. The user is at the second screen anyway; explicit control kills false triggers from Test Drive, photo mode, and menu transitions.
+9. **Partial laps**: discarded. Only laps where `LapNumber` actually advanced (or the type-specific fallback fires) count. A partial can't be a best, and including them muddies leaderboards.
+10. **Event names**: combobox — pick existing or create new — scoped within a type. `(name, type)` is unique, so "Goliath" as a race and "Goliath" as a free-roam recording are distinct events.
+11. **Tune tracking**: PI-shift auto-prompt with manual override at any time. Free signal, catches forgotten labels, never blocks.
+12. **Frame storage**: one gzipped blob per `laps` row, not per-frame rows.
+13. **`/live` stays**: the existing corner view + trace strip remains the primary "while driving" view; v3 only adds a small REC badge. No new components on `/live`.
+
+---
+
+## 9. What I won't build
 
 - A Forza Motorsport mode. FM uses the same Sled but a slightly different Dash layout (no 12-byte gap). Easy to add later by branching the decoder on packet length.
 - Cloud sync of sessions. Sessions stay on disk. If you want them off-box, that's `rsync`'s job.

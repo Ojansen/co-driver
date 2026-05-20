@@ -1,9 +1,45 @@
-import { forzaBus, type DebugFrame } from '../utils/forza-bus'
+import { forzaBus, type DebugFrame, type RecordingState, type TunePrompt } from '../utils/forza-bus'
+import { recorder } from '../utils/recorder'
 import type { Telemetry } from '../utils/decode'
+
+interface StartMessage {
+  type: 'start'
+  eventId: number
+  tuneLabel?: string | null
+}
+
+interface StopMessage {
+  type: 'stop'
+}
+
+type InboundMessage = StartMessage | StopMessage
+
+function parseInbound(raw: unknown): InboundMessage | null {
+  let text: string
+  if (typeof raw === 'string') {
+    text = raw
+  } else if (raw && typeof (raw as { text?: () => string }).text === 'function') {
+    text = (raw as { text: () => string }).text()
+  } else {
+    text = String(raw)
+  }
+  try {
+    const parsed = JSON.parse(text) as Partial<InboundMessage>
+    if (parsed?.type === 'start' && typeof (parsed as StartMessage).eventId === 'number') {
+      return parsed as StartMessage
+    }
+    if (parsed?.type === 'stop') return parsed as StopMessage
+    return null
+  } catch {
+    return null
+  }
+}
 
 export default defineWebSocketHandler({
   open(peer) {
     peer.send(JSON.stringify({ type: 'hello' }))
+    // Sync new clients to current recording state.
+    peer.send(JSON.stringify({ type: 'recording_state', ...recorder.getState() }))
 
     const safeSend = (payload: unknown) => {
       try {
@@ -14,14 +50,42 @@ export default defineWebSocketHandler({
     }
     const onTelemetry = (t: Telemetry) => safeSend({ type: 'telemetry', t })
     const onDebug = (d: DebugFrame) => safeSend({ type: 'debug', d })
+    const onRecordingState = (s: RecordingState) => safeSend({ type: 'recording_state', ...s })
+    const onTunePrompt = (p: TunePrompt) => safeSend({ type: 'tune_prompt', ...p })
 
     forzaBus.on('telemetry', onTelemetry)
     forzaBus.on('debug', onDebug)
+    forzaBus.on('recording_state', onRecordingState)
+    forzaBus.on('tune_prompt', onTunePrompt)
 
-    // Store unsubscribers on the peer so close() can clean up.
     ;(peer as unknown as { _cleanup: () => void })._cleanup = () => {
       forzaBus.off('telemetry', onTelemetry)
       forzaBus.off('debug', onDebug)
+      forzaBus.off('recording_state', onRecordingState)
+      forzaBus.off('tune_prompt', onTunePrompt)
+    }
+  },
+  async message(peer, message) {
+    const msg = parseInbound(message)
+    if (!msg) return
+
+    const reportError = (err: unknown) => {
+      const text = err instanceof Error ? err.message : String(err)
+      try {
+        peer.send(JSON.stringify({ type: 'error', message: text }))
+      } catch {
+        // ignore
+      }
+    }
+
+    try {
+      if (msg.type === 'start') {
+        await recorder.start(msg.eventId, msg.tuneLabel ?? null)
+      } else if (msg.type === 'stop') {
+        await recorder.stop()
+      }
+    } catch (err) {
+      reportError(err)
     }
   },
   close(peer) {

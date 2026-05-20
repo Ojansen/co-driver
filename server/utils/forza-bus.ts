@@ -7,9 +7,28 @@ export interface DebugFrame {
   tailHex: string
 }
 
+export type RecordingState
+  = | { state: 'idle' }
+    | {
+      state: 'recording'
+      sessionId: number
+      eventId: number
+      carOrdinal: number
+      lapsCompleted: number
+    }
+
+export interface TunePrompt {
+  sessionId: number
+  carOrdinal: number
+  previousPi: number
+  currentPi: number
+}
+
 interface ForzaEvents {
   telemetry: [Telemetry]
   debug: [DebugFrame]
+  recording_state: [RecordingState]
+  tune_prompt: [TunePrompt]
 }
 
 class ForzaBus extends EventEmitter<ForzaEvents> {}
