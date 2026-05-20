@@ -2,7 +2,6 @@
 import { EVENT_TYPE_LABELS, isEventType, type EventType } from '~/utils/event-types'
 import { formatLap } from '~/utils/format'
 import type { Telemetry } from '../../../../../server/utils/decode'
-import type { DynoCurve as DynoCurveData } from '~/utils/dyno'
 
 const route = useRoute()
 const typeParam = String(route.params.type ?? '')
@@ -48,18 +47,6 @@ const { data, error } = await useFetch<SessionDetail>(`/api/sessions/${sessionId
 if (error.value || !data.value) {
   throw createError({ statusCode: 404, statusMessage: 'session not found' })
 }
-
-interface DynoResponse {
-  sessionId: number
-  eventId: number
-  tuneLabel: string | null
-  piAtStart: number
-  car: { ordinal: number, class: number, displayName: string | null }
-  lapCount: number
-  curve: DynoCurveData
-}
-
-const { data: dyno } = await useFetch<DynoResponse>(`/api/sessions/${sessionId}/dyno`)
 
 // Replay state
 const selectedLapId = ref<number | null>(null)
@@ -300,17 +287,6 @@ async function confirmDelete() {
           {{ formatDuration(data?.session.startedAt ?? '', data?.session.endedAt ?? null) }}
         </div>
       </div>
-    </section>
-
-    <section
-      v-if="dyno?.curve"
-      class="mb-8"
-    >
-      <DynoCurve
-        :curve="dyno.curve"
-        title="dyno · session"
-        :subtitle="`${dyno.car.displayName ?? ('#' + dyno.car.ordinal)} · ${dyno.tuneLabel ?? 'untuned'} · [${carClassLetter(dyno.car.class)}]${dyno.piAtStart}`"
-      />
     </section>
 
     <section v-if="data?.laps?.length">
