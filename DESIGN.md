@@ -1,5 +1,12 @@
 # Forza Telemetry & Car Debugger
 
+> **Status: closed (2026-05-20).** This document captured the v1–v3 design and
+> the original v4 roadmap. Everything in it either shipped or was deferred to
+> a standalone wishlist (see §10). Future feature work plans separately —
+> don't extend this doc. The packet layout in §2 and the architectural
+> rationale in §6 and §8.9 remain useful reference; the rest is historical.
+> See `git log` for what landed after this doc closed.
+
 A self-hosted, local-first tuning telemetry tool for Forza Horizon. Subscribes to the game's UDP "Data Out" stream, decodes the Car Dash packet, and renders live SVG views designed for tuning workflows — not for looking pretty on a stream overlay.
 
 Runs entirely on the user's machine. No accounts, no cloud, no analytics. The game broadcasts UDP, Nuxt listens, the browser draws — that's the whole loop.
@@ -671,3 +678,30 @@ Continuing the §6 list:
 - Cloud sync of sessions. Sessions stay on disk. If you want them off-box, that's `rsync`'s job.
 - A login / multi-user mode. The whole thing lives on your network. If you want to lock the port down, that's a firewall rule, not a feature.
 - "Driver coaching" overlays / lap suggestion AI. Out of scope; we want a tool, not a coach.
+
+---
+
+## 10. Where things stand (epilogue, 2026-05-20)
+
+v1–v3 shipped exactly as planned. v4 outpaced the roadmap: the lap-overlay
+slice landed as designed, then a bunch of work the original plan didn't
+anticipate also shipped — friction circle per corner, G-G dot, diagnostic
+chips, motor trace strip, DVR scrub, `/tune` reference, `/dyno` gear-tuning
+workbench, lap-replay player, the `touge` event type, and a few smaller
+pieces (debug panel, confirm/tune modals, delete cascades). The roadmap
+markers in §5 are stale on purpose — that section is the original plan, not
+the current state. See `git log` for the actual delivery story.
+
+Items from §5 that didn't ship and survive as **standalone wishlist**, not
+roadmap commitments:
+
+- Track map (`PositionX, PositionZ` colored by speed) — v4 slice 2
+- Per-sector deltas / sector boundary detection — v4 slice 3
+- Bottoming events list + tire-temp histogram — v4 slice 4
+- Hardware shift light (USB serial bridge to RP2040 / Arduino) — v5
+
+None of the §9 won't-build items crept in.
+
+The decoder (§2 + §7) and the architectural decisions (§6, §8.9) are still
+authoritative for anything touching the UDP layer or the recorder. Treat
+the rest of this document as historical.
