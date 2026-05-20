@@ -136,6 +136,35 @@ const bestLapMs = computed(() => {
   if (laps.length === 0) return null
   return Math.min(...laps.map(l => l.timeMs))
 })
+
+// Delete session
+const deleteOpen = ref(false)
+const deleting = ref(false)
+const deleteError = ref<string | null>(null)
+
+const cascadeLaps = computed(() => data.value?.laps.length ?? 0)
+
+function openDelete() {
+  deleteError.value = null
+  deleteOpen.value = true
+}
+
+async function confirmDelete() {
+  if (deleting.value) return
+  deleting.value = true
+  deleteError.value = null
+  try {
+    await $fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' })
+    deleteOpen.value = false
+    await navigateTo(`/events/${eventTypeKey}/${eventId}`)
+  } catch (err) {
+    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
+    deleteError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'delete failed'
+    deleteOpen.value = false
+  } finally {
+    deleting.value = false
+  }
+}
 </script>
 
 <template>
@@ -174,6 +203,20 @@ const bestLapMs = computed(() => {
           Session #{{ sessionId }}
         </h1>
       </div>
+      <button
+        type="button"
+        class="rounded-sm border border-red-500/40 bg-red-500/10 px-4 py-2.5 font-mono text-xs uppercase tracking-[0.3em] text-red-300 transition-colors hover:border-red-400/60 hover:bg-red-500/20"
+        @click="openDelete"
+      >
+        Delete session
+      </button>
+    </div>
+
+    <div
+      v-if="deleteError"
+      class="mb-6 rounded-lg border border-red-500/40 bg-red-500/10 p-3 font-mono text-xs text-red-300"
+    >
+      {{ deleteError }}
     </div>
 
     <section class="mb-8 grid grid-cols-2 gap-3 font-mono text-sm sm:grid-cols-4">
@@ -318,5 +361,24 @@ const bestLapMs = computed(() => {
         :frames="replayFrames"
       />
     </section>
+
+    <ConfirmModal
+      v-model:open="deleteOpen"
+      :title="`Delete session #${sessionId}?`"
+      confirm-label="Delete session"
+      :busy="deleting"
+      @confirm="confirmDelete"
+    >
+      <p>
+        Permanently remove this session.
+        <span class="text-zinc-300">Cannot be undone.</span>
+      </p>
+      <ul class="mt-3 space-y-1 text-xs text-zinc-300">
+        <li>· {{ cascadeLaps }} lap{{ cascadeLaps === 1 ? '' : 's' }} removed</li>
+        <li v-if="data?.session.tuneLabel">
+          · tune label: {{ data.session.tuneLabel }}
+        </li>
+      </ul>
+    </ConfirmModal>
   </main>
 </template>

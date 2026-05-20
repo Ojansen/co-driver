@@ -20,6 +20,8 @@ export default defineEventHandler(async (event) => {
 
   // Leaderboard: each session with its best lap + lap count + car details.
   // Sessions without any laps still appear, sorted last.
+  // bestLapId is the id of the lap matching MIN(timeMs) within the session —
+  // used by the compare page to jump straight to the relevant blob.
   const sessions = await db
     .select({
       sessionId: schema.sessions.id,
@@ -32,6 +34,13 @@ export default defineEventHandler(async (event) => {
       startedAt: schema.sessions.startedAt,
       endedAt: schema.sessions.endedAt,
       bestLapMs: sql<number | null>`MIN(${schema.laps.timeMs})`.as('bestLapMs'),
+      bestLapId: sql<number | null>`(
+        SELECT ${schema.laps.id}
+        FROM ${schema.laps}
+        WHERE ${schema.laps.sessionId} = ${schema.sessions.id}
+        ORDER BY ${schema.laps.timeMs} ASC, ${schema.laps.id} ASC
+        LIMIT 1
+      )`.as('bestLapId'),
       lapCount: sql<number>`COUNT(${schema.laps.id})`.as('lapCount')
     })
     .from(schema.sessions)

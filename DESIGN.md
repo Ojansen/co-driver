@@ -230,13 +230,18 @@ Status markers (last reviewed 2026-05-20):
 ### Rate bump — full 60 Hz, no throttle — **[done]** · commit `ebe82f3`
 - See §8.9 decision 14. Trace strip resized to 600 samples; recorder + WS both flow at native Forza rate.
 
-### v4 — Tuning workbench — **[todo]**
-- Overlay traces from two captured laps (same event, different car/tune)
-- Per-sector deltas, sector boundaries derived from distance along the route
-- "Bottoming events" list — every frame where `normalizedTravel > 0.95`, with the speed / steering at that frame
-- Tire-temp histogram per lap
-- Track map: plot `(PositionX, PositionZ)` colored by current speed
-- Decodes the v3 frames blobs on demand for analytics
+### v4 — Tuning workbench — **[partial]**
+Sliced. Slice 1 (two-lap overlay) shipped; track map, sector deltas, and per-lap diagnostics still **[todo]**.
+
+- Overlay traces from two captured laps (same event, different car/tune) — **[done]** · slice 1
+  - Leaderboard checkbox column on `/events/:type/:id`; "Compare →" pill appears when two sessions are selected
+  - New page `/events/:type/:id/compare?a=&b=` overlays throttle / brake / steer by distance with a sign-clipped delta-time line (B − A)
+  - `app/utils/align.ts` resamples both laps onto a shared 1-meter distance grid; `formatDelta` added to `app/utils/format.ts`
+- Per-sector deltas, sector boundaries derived from distance along the route — **[todo]** · slice 3
+- "Bottoming events" list — every frame where `normalizedTravel > 0.95`, with the speed / steering at that frame — **[todo]** · slice 4
+- Tire-temp histogram per lap — **[todo]** · slice 4
+- Track map: plot `(PositionX, PositionZ)` colored by current speed — **[todo]** · slice 2
+- Decodes the v3 frames blobs on demand for analytics — **[done]** · slice 1 reuses `GET /api/laps/:id/frames` (extended to also return session/car/tune metadata)
 
 ### v5 (maybe) — Hardware shift light — **[todo]**
 - Tiny serial bridge from the Nitro server to a USB-attached RP2040 or Arduino
@@ -654,6 +659,7 @@ Continuing the §6 list:
 12. **Frame storage**: one gzipped blob per `laps` row, not per-frame rows.
 13. **`/live` stays**: the existing corner view + trace strip remains the primary "while driving" view; v3 only adds a small REC badge. No new components on `/live`.
 14. **Sample rate — full 60 Hz, no throttle**: capture and display both run at the native Forza Data Out rate. The previous 30 Hz throttle was a WAN-era bandwidth defence that's irrelevant on LAN; the temporal resolution gain matters for replay smoothness and transient analytics (brake-lockup onset, wheelspin spikes, bottoming events span 50–200 ms, where 30 Hz aliases the shape). Storage delta is trivial (~720 KB per 2-min lap gzipped). User's stated principle: gather everything, decide later whether to use it.
+15. **Deletion is user-driven for events + sessions**: `DELETE /api/events/:id` and `DELETE /api/sessions/:id`. Manual cascade inside a `db.transaction` (laps → sessions → event for the event handler; laps → session for the session handler) — FKs stay at SQLite's NO ACTION default so no schema migration is required, and the cascade is auditable in code. Laps are not directly deletable; remove the parent session to drop a bad lap. Cars are never deleted by the user — orphaned car rows are kept so `displayName` survives across re-recordings of the same ordinal. **Active-recording guard**: the API returns 409 if the targeted event/session is the one currently being recorded; the user must stop the recording first (no auto-stop, no hidden side effects). Surface in the UI by a reusable `ConfirmModal.vue` mounted on event-detail and session-detail pages, with a red pill button and a cascade-count message ("3 sessions and 17 laps will be removed").
 
 ---
 
