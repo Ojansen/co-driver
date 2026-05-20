@@ -25,7 +25,7 @@ const align = computed(() => props.side === 'left' ? 'text-left' : 'text-right')
 
 <template>
   <div class="rounded-lg border border-zinc-800 bg-zinc-900/80 p-4 font-mono text-zinc-100 backdrop-blur">
-    <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-zinc-400">
+    <div class="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-zinc-400">
       <span>{{ label }}</span>
       <span
         v-if="rumble"
@@ -35,11 +35,11 @@ const align = computed(() => props.side === 'left' ? 'text-left' : 'text-right')
 
     <!-- Suspension bar -->
     <div class="mt-3">
-      <div class="flex items-center justify-between text-[11px] text-zinc-400">
+      <div class="flex items-center justify-between text-sm text-zinc-400">
         <span>SUSP</span>
         <span class="tabular-nums">
-          <span class="text-zinc-500">{{ (suspensionMeters * 1000).toFixed(0) }}<span class="text-[9px]">mm</span></span>
-          <span class="ml-2 text-zinc-200">{{ suspension.toFixed(2) }}</span>
+          <span class="text-zinc-500">{{ (suspensionMeters * 1000).toFixed(0) }}<span class="text-[11px]">mm</span></span>
+          <span class="ml-2 text-base text-zinc-200">{{ suspension.toFixed(2) }}</span>
         </span>
       </div>
       <svg
@@ -77,13 +77,13 @@ const align = computed(() => props.side === 'left' ? 'text-left' : 'text-right')
     </div>
 
     <!-- Slip ratio + angle -->
-    <div class="mt-4 grid grid-cols-2 gap-3 text-[11px]">
+    <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
       <div :class="align">
         <div class="text-zinc-400">
           SLIP R
         </div>
         <div
-          class="text-lg leading-none"
+          class="text-2xl leading-none tabular-nums"
           :style="{ color: ratioColor }"
         >
           {{ slipRatio >= 0 ? '+' : '' }}{{ slipRatio.toFixed(2) }}
@@ -94,7 +94,7 @@ const align = computed(() => props.side === 'left' ? 'text-left' : 'text-right')
           SLIP A
         </div>
         <div
-          class="text-lg leading-none"
+          class="text-2xl leading-none tabular-nums"
           :style="{ color: angleColor }"
         >
           {{ slipAngle >= 0 ? '+' : '' }}{{ slipAngle.toFixed(2) }}
@@ -105,10 +105,10 @@ const align = computed(() => props.side === 'left' ? 'text-left' : 'text-right')
     <!-- Combined slip — friction-circle magnitude per wheel.
          The little bar is the magnitude clamped to [0, 1.2]; >1 = past the limit. -->
     <div class="mt-3">
-      <div class="flex items-center justify-between text-[11px]">
+      <div class="flex items-center justify-between text-sm">
         <span class="text-zinc-400">COMB</span>
         <span
-          class="text-zinc-200 tabular-nums"
+          class="text-base tabular-nums"
           :style="{ color: combinedColor }"
         >{{ combinedSlip.toFixed(2) }}</span>
       </div>
@@ -149,11 +149,11 @@ const align = computed(() => props.side === 'left' ? 'text-left' : 'text-right')
     <!-- Tire temp -->
     <div class="mt-4 flex items-center gap-2">
       <span
-        class="inline-block h-3 w-3 rounded-sm"
+        class="inline-block h-3.5 w-3.5 rounded-sm"
         :style="{ background: temp }"
       />
-      <span class="text-sm">{{ tempC.toFixed(0) }}<span class="text-zinc-500 text-[10px]">°C</span></span>
-      <span class="ml-auto text-[10px] uppercase tracking-wider text-zinc-500">TIRE</span>
+      <span class="text-base tabular-nums">{{ tempC.toFixed(0) }}<span class="text-zinc-500 text-xs">°C</span></span>
+      <span class="ml-auto text-xs uppercase tracking-wider text-zinc-500">TIRE</span>
     </div>
   </div>
 </template>

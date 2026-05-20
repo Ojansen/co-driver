@@ -94,18 +94,18 @@ function signedFixed(v: number, digits: number): string {
     <!-- Top: gear + speed -->
     <div class="flex items-start justify-between">
       <div>
-        <div class="text-[10px] uppercase tracking-[0.2em] text-zinc-400">
+        <div class="text-xs uppercase tracking-[0.2em] text-zinc-400">
           GEAR
         </div>
-        <div class="text-7xl leading-none font-light tabular-nums">
+        <div class="text-8xl leading-none font-light tabular-nums">
           {{ gearLabel(gear) }}
         </div>
       </div>
       <div class="text-right">
-        <div class="text-[10px] uppercase tracking-[0.2em] text-zinc-400">
+        <div class="text-xs uppercase tracking-[0.2em] text-zinc-400">
           KM/H
         </div>
-        <div class="text-5xl leading-none font-light tabular-nums">
+        <div class="text-6xl leading-none font-light tabular-nums">
           {{ Math.round(speedKmh) }}
         </div>
       </div>
@@ -113,9 +113,9 @@ function signedFixed(v: number, digits: number): string {
 
     <!-- Middle: RPM linear bar -->
     <div class="mt-5">
-      <div class="flex justify-between text-[10px] text-zinc-400">
+      <div class="flex justify-between text-sm text-zinc-400">
         <span>RPM</span>
-        <span class="tabular-nums">{{ Math.round(rpm) }} / {{ Math.round(rpmMax) }}</span>
+        <span class="tabular-nums text-base text-zinc-200">{{ Math.round(rpm) }} <span class="text-zinc-500">/ {{ Math.round(rpmMax) }}</span></span>
       </div>
       <svg
         viewBox="0 0 100 10"
@@ -161,30 +161,30 @@ function signedFixed(v: number, digits: number): string {
     </div>
 
     <!-- Inputs strip -->
-    <div class="mt-5 space-y-2">
-      <div class="flex items-center gap-2 text-[10px] text-zinc-400">
-        <span class="w-12">THROTL</span>
-        <div class="h-2 flex-1 overflow-hidden rounded bg-zinc-800">
+    <div class="mt-5 space-y-2.5">
+      <div class="flex items-center gap-2 text-sm text-zinc-400">
+        <span class="w-16">THROTL</span>
+        <div class="h-2.5 flex-1 overflow-hidden rounded bg-zinc-800">
           <div
             class="h-full bg-green-500"
             :style="{ width: (throttle * 100) + '%' }"
           />
         </div>
-        <span class="w-8 text-right tabular-nums text-zinc-300">{{ Math.round(throttle * 100) }}</span>
+        <span class="w-10 text-right tabular-nums text-zinc-200">{{ Math.round(throttle * 100) }}</span>
       </div>
-      <div class="flex items-center gap-2 text-[10px] text-zinc-400">
-        <span class="w-12">BRAKE</span>
-        <div class="h-2 flex-1 overflow-hidden rounded bg-zinc-800">
+      <div class="flex items-center gap-2 text-sm text-zinc-400">
+        <span class="w-16">BRAKE</span>
+        <div class="h-2.5 flex-1 overflow-hidden rounded bg-zinc-800">
           <div
             class="h-full bg-red-500"
             :style="{ width: (brake * 100) + '%' }"
           />
         </div>
-        <span class="w-8 text-right tabular-nums text-zinc-300">{{ Math.round(brake * 100) }}</span>
+        <span class="w-10 text-right tabular-nums text-zinc-200">{{ Math.round(brake * 100) }}</span>
       </div>
-      <div class="flex items-center gap-2 text-[10px] text-zinc-400">
-        <span class="w-12">STEER</span>
-        <div class="relative h-2 flex-1 overflow-hidden rounded bg-zinc-800">
+      <div class="flex items-center gap-2 text-sm text-zinc-400">
+        <span class="w-16">STEER</span>
+        <div class="relative h-2.5 flex-1 overflow-hidden rounded bg-zinc-800">
           <div
             class="absolute top-0 h-full w-px bg-zinc-600"
             style="left: 50%;"
@@ -196,97 +196,195 @@ function signedFixed(v: number, digits: number): string {
               : { right: '50%', width: (-steer * 50) + '%' }"
           />
         </div>
-        <span class="w-8 text-right tabular-nums text-zinc-300">{{ Math.round(steerPct - 50) }}</span>
+        <span class="w-10 text-right tabular-nums text-zinc-200">{{ Math.round(steerPct - 50) }}</span>
       </div>
     </div>
 
     <!-- Chassis strip: G-G dot + attitude/rotation readouts -->
     <div class="mt-5 flex items-stretch gap-4">
-      <!-- G-G dot -->
+      <!-- G-G dot — dominant chassis visualization -->
       <div class="relative shrink-0">
         <svg
           viewBox="0 0 100 100"
-          class="h-24 w-24"
+          class="h-56 w-56"
         >
+          <defs>
+            <radialGradient id="ggBackdrop">
+              <stop
+                offset="0%"
+                stop-color="#0f0f12"
+              />
+              <stop
+                offset="100%"
+                stop-color="#18181b"
+              />
+            </radialGradient>
+            <filter
+              id="ggDotGlow"
+              x="-50%"
+              y="-50%"
+              width="200%"
+              height="200%"
+            >
+              <feGaussianBlur stdDeviation="1.6" />
+            </filter>
+          </defs>
+
           <!-- backdrop -->
           <circle
             cx="50"
             cy="50"
             r="48"
-            fill="#18181b"
-            stroke="#27272a"
-            stroke-width="0.5"
+            fill="url(#ggBackdrop)"
+            stroke="#3f3f46"
+            stroke-width="0.6"
           />
           <!-- crosshair -->
           <line
             x1="50"
-            y1="2"
+            y1="3"
             x2="50"
-            y2="98"
-            stroke="#3f3f46"
+            y2="97"
+            stroke="#52525b"
             stroke-width="0.4"
           />
           <line
-            x1="2"
+            x1="3"
             y1="50"
-            x2="98"
+            x2="97"
             y2="50"
-            stroke="#3f3f46"
+            stroke="#52525b"
             stroke-width="0.4"
           />
-          <!-- 1g ring -->
+          <!-- 1g ring (inner) and 2g ring (outer) -->
           <circle
             cx="50"
             cy="50"
             r="24"
             fill="none"
-            stroke="#3f3f46"
+            stroke="#52525b"
             stroke-width="0.4"
             stroke-dasharray="2,2"
           />
-          <!-- trail of the last ~1 s -->
+          <circle
+            cx="50"
+            cy="50"
+            r="48"
+            fill="none"
+            stroke="#3f3f46"
+            stroke-width="0.4"
+            stroke-dasharray="1,2"
+          />
+          <!-- axis ticks at 1g and 2g -->
+          <g
+            stroke="#52525b"
+            stroke-width="0.5"
+          >
+            <line
+              x1="26"
+              y1="48"
+              x2="26"
+              y2="52"
+            />
+            <line
+              x1="74"
+              y1="48"
+              x2="74"
+              y2="52"
+            />
+            <line
+              x1="48"
+              y1="26"
+              x2="52"
+              y2="26"
+            />
+            <line
+              x1="48"
+              y1="74"
+              x2="52"
+              y2="74"
+            />
+          </g>
+          <!-- ring labels -->
+          <text
+            x="50"
+            y="28.5"
+            text-anchor="middle"
+            fill="#52525b"
+            font-size="3.2"
+            font-family="monospace"
+          >1g</text>
+          <text
+            x="50"
+            y="4.5"
+            text-anchor="middle"
+            fill="#3f3f46"
+            font-size="3.2"
+            font-family="monospace"
+          >2g</text>
+          <!-- trail of the last ~1 s with glow -->
           <path
             :d="trailPath"
             fill="none"
             stroke="#f59e0b"
-            stroke-width="0.8"
+            stroke-width="1.6"
             stroke-linejoin="round"
             stroke-linecap="round"
-            opacity="0.55"
+            opacity="0.6"
+            filter="url(#ggDotGlow)"
           />
-          <!-- current point -->
+          <path
+            :d="trailPath"
+            fill="none"
+            stroke="#fbbf24"
+            stroke-width="1.1"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+            opacity="0.85"
+          />
+          <!-- current point — glow + solid -->
           <circle
             :cx="dotPos.x"
             :cy="dotPos.y"
-            r="2.4"
+            r="4.2"
             fill="#22c55e"
+            opacity="0.4"
+            filter="url(#ggDotGlow)"
+          />
+          <circle
+            :cx="dotPos.x"
+            :cy="dotPos.y"
+            r="3"
+            fill="#4ade80"
+            stroke="#0f0f12"
+            stroke-width="0.6"
           />
         </svg>
-        <div class="absolute top-0.5 left-1 text-[8px] uppercase tracking-wider text-zinc-600">
+        <div class="absolute top-2 left-2 text-xs uppercase tracking-[0.25em] text-zinc-500">
           G-G
         </div>
-        <div class="absolute right-1 bottom-0.5 text-[8px] tabular-nums text-zinc-500">
-          {{ signedFixed(lateralG, 1) }}·{{ signedFixed(longG, 1) }}g
+        <div class="absolute right-2 bottom-2 font-mono text-xs tabular-nums text-zinc-300">
+          {{ signedFixed(lateralG, 2) }} <span class="text-zinc-500">·</span> {{ signedFixed(longG, 2) }} <span class="text-zinc-500">g</span>
         </div>
       </div>
 
       <!-- Attitude + rotation readouts -->
-      <div class="grid flex-1 grid-cols-2 gap-x-3 gap-y-1.5 self-center text-[10px]">
+      <div class="grid flex-1 grid-cols-2 gap-x-4 gap-y-3 self-center text-sm">
         <div class="flex items-center justify-between text-zinc-400">
           <span>ROLL</span>
-          <span class="tabular-nums text-zinc-200">{{ signedFixed(radToDeg(roll), 1) }}°</span>
+          <span class="text-lg tabular-nums text-zinc-100">{{ signedFixed(radToDeg(roll), 1) }}°</span>
         </div>
         <div class="flex items-center justify-between text-zinc-400">
           <span>PITCH</span>
-          <span class="tabular-nums text-zinc-200">{{ signedFixed(radToDeg(pitch), 1) }}°</span>
+          <span class="text-lg tabular-nums text-zinc-100">{{ signedFixed(radToDeg(pitch), 1) }}°</span>
         </div>
         <div class="flex items-center justify-between text-zinc-400">
           <span>YAW/s</span>
-          <span class="tabular-nums text-zinc-200">{{ signedFixed(yawRate, 2) }}</span>
+          <span class="text-lg tabular-nums text-zinc-100">{{ signedFixed(yawRate, 2) }}</span>
         </div>
         <div class="flex items-center justify-between text-zinc-400">
           <span>BOOST</span>
-          <span class="tabular-nums text-zinc-200">{{ boost.toFixed(2) }}</span>
+          <span class="text-lg tabular-nums text-zinc-100">{{ boost.toFixed(2) }}</span>
         </div>
       </div>
     </div>
