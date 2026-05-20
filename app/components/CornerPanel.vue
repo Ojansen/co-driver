@@ -21,6 +21,41 @@ const ratioColor = computed(() => slipColor(Math.abs(props.slipRatio)))
 const angleColor = computed(() => slipColor(Math.abs(props.slipAngle)))
 const combinedColor = computed(() => combColor(props.combinedSlip))
 const align = computed(() => props.side === 'left' ? 'text-left' : 'text-right')
+
+// --- friction-circle dot --------------------------------------------------
+// 100×100 viewBox, center at (50,50). Friction limit (combinedSlip = 1.0)
+// at radius = LIMIT_R; the dot exits this ring when the tire goes past grip.
+const LIMIT_R = 32
+const TRAIL_SAMPLES = 30 // ~0.5 s at 60 Hz
+
+interface FrPoint { x: number, y: number }
+const trail = ref<FrPoint[]>([])
+
+function project(slipAngle: number, slipRatio: number): FrPoint {
+  // Convention: slipAngle on X (right = positive), slipRatio on Y (up = positive).
+  // SVG y grows downward, so invert.
+  return {
+    x: 50 + slipAngle * LIMIT_R,
+    y: 50 - slipRatio * LIMIT_R
+  }
+}
+
+const dotPos = computed<FrPoint>(() => project(props.slipAngle, props.slipRatio))
+
+watch(() => [props.slipAngle, props.slipRatio] as const, ([sa, sr]) => {
+  trail.value.push(project(sa, sr))
+  if (trail.value.length > TRAIL_SAMPLES) trail.value.shift()
+}, { immediate: true })
+
+const trailPath = computed(() => {
+  const pts = trail.value
+  if (pts.length < 2) return ''
+  let out = ''
+  for (let i = 0; i < pts.length; i++) {
+    out += (i === 0 ? 'M' : 'L') + pts[i]!.x.toFixed(1) + ',' + pts[i]!.y.toFixed(1) + ' '
+  }
+  return out.trim()
+})
 </script>
 
 <template>
@@ -102,48 +137,85 @@ const align = computed(() => props.side === 'left' ? 'text-left' : 'text-right')
       </div>
     </div>
 
-    <!-- Combined slip — friction-circle magnitude per wheel.
-         The little bar is the magnitude clamped to [0, 1.2]; >1 = past the limit. -->
-    <div class="mt-3">
+    <!-- Friction circle — dot positioned at (slipAngle, slipRatio) inside the
+         grip limit (outer ring = 1.0). Working-zone ring is dashed at 0.7. -->
+    <div class="mt-4">
       <div class="flex items-center justify-between text-sm">
-        <span class="text-zinc-400">COMB</span>
+        <span class="text-zinc-400">FRICTION</span>
         <span
           class="text-base tabular-nums"
           :style="{ color: combinedColor }"
         >{{ combinedSlip.toFixed(2) }}</span>
       </div>
-      <svg
-        viewBox="0 0 100 4"
-        class="mt-1 w-full"
-        preserveAspectRatio="none"
-      >
-        <rect
-          x="0"
-          y="0"
-          width="100"
-          height="4"
-          rx="1"
-          fill="#27272a"
-        />
-        <!-- 1.0 limit marker -->
-        <line
-          x1="83.3"
-          y1="0"
-          x2="83.3"
-          y2="4"
-          stroke="#52525b"
-          stroke-width="0.5"
-          stroke-dasharray="1,1"
-        />
-        <rect
-          x="0"
-          y="0"
-          :width="Math.min(combinedSlip / 1.2 * 100, 100)"
-          height="4"
-          rx="1"
-          :fill="combinedColor"
-        />
-      </svg>
+      <div class="mt-1.5 flex justify-center">
+        <svg
+          viewBox="0 0 100 100"
+          class="h-24 w-24"
+        >
+          <!-- backdrop -->
+          <circle
+            cx="50"
+            cy="50"
+            r="40"
+            fill="#18181b"
+          />
+          <!-- crosshair -->
+          <line
+            x1="50"
+            y1="6"
+            x2="50"
+            y2="94"
+            stroke="#3f3f46"
+            stroke-width="0.5"
+          />
+          <line
+            x1="6"
+            y1="50"
+            x2="94"
+            y2="50"
+            stroke="#3f3f46"
+            stroke-width="0.5"
+          />
+          <!-- working-zone ring (0.7) -->
+          <circle
+            cx="50"
+            cy="50"
+            :r="LIMIT_R * 0.7"
+            fill="none"
+            stroke="#3f3f46"
+            stroke-width="0.5"
+            stroke-dasharray="1.5,1.5"
+          />
+          <!-- friction-limit ring (1.0) — solid -->
+          <circle
+            cx="50"
+            cy="50"
+            :r="LIMIT_R"
+            fill="none"
+            stroke="#52525b"
+            stroke-width="0.7"
+          />
+          <!-- trail -->
+          <path
+            :d="trailPath"
+            fill="none"
+            stroke="#fbbf24"
+            stroke-width="1"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+            opacity="0.55"
+          />
+          <!-- current point -->
+          <circle
+            :cx="dotPos.x"
+            :cy="dotPos.y"
+            r="3"
+            :fill="combinedColor"
+            stroke="#0f0f12"
+            stroke-width="0.5"
+          />
+        </svg>
+      </div>
     </div>
 
     <!-- Tire temp -->
