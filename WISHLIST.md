@@ -6,24 +6,32 @@ open items from §5 plus everything found in subsequent competitor research
 collected here. Treat this as the standing list to pick the next feature from
 when there's no other priority.
 
-Last refreshed 2026-05-20.
+Last refreshed 2026-05-20 (post-track-map).
 
 ---
+
+## Recently shipped
+
+- **Track map + elevation profile** — commit `d9b6bc1`. Top-down
+  `(positionX, positionZ)` view with the per-lap elevation strip below
+  it; color modes for speed / throttle / brake / driving-line; multi-lap
+  overlay on session detail; moving cursor on both views during replay.
+  Decoder also now reads `drivingLine` and `aiBrakeDifference` from the
+  packet (offsets 321/322).
 
 ## Carried over from DESIGN.md §5
 
 Items that were [todo] in the original roadmap and didn't ship:
 
-- **Track map** — plot `(PositionX, PositionZ)` colored by current speed.
-  Originally v4 slice 2. Every other telemetry tool has this; it's the
-  anchor visualization a lot of downstream features build on.
 - **Per-sector deltas** — derive sector boundaries from distance along the
   route, render sector times + delta vs reference. Originally v4 slice 3.
+  *Now next-up; see [Newly possible](#newly-possible--unlocked-by-the-track-map).*
 - **Bottoming-events list** — enumerate every frame where
   `normalizedTravel > 0.95`, with the speed/steer at that frame. Originally
-  v4 slice 4.
+  v4 slice 4. *Now becomes a markers-on-the-map view, not just a list.*
 - **Tire-temp histogram per lap** — temperature distribution rather than
-  the instantaneous heatmap. Originally v4 slice 4.
+  the instantaneous heatmap. Originally v4 slice 4. Independent of the
+  map.
 - **Hardware shift light** — USB serial bridge from Nitro to a USB-attached
   RP2040 / Arduino; LEDs map to `rpm / rpmMax`. Originally v5. Optional;
   the screen view must never depend on hardware.
@@ -62,22 +70,61 @@ black-box recommendations.
 
 ### Bigger lifts
 
-- **Ghost-lap overlay** — replay your best lap as a translucent silhouette
-  alongside live. We have the data (frames blob per lap); we'd need a
-  position-anchored render in the corner view.
-- **Track-map heatmaps** — same map as the speed-colored one above, but
-  recolored by throttle / brake / slip / gear. Each variant is cheap
-  once the map exists.
-- **Multi-lap overlay (N > 2)** — `/events/.../compare` does 2.
-  Pro tools do 5–7. The `align.ts` resampling generalizes naturally.
+- **Ghost-lap overlay on `/live`** — replay your best lap as a translucent
+  silhouette alongside live. Still a bigger lift because the on-screen
+  *live* view doesn't currently render a map; the track map only shows up
+  on session detail + replay. The position-anchored rendering pattern is
+  now proven, so the remaining work is plumbing the map into `/live` and
+  keeping it lightweight enough not to compete with the corner view.
+- **Multi-lap overlay (N > 2) on compare page** — `/events/.../compare`
+  does 2 lap traces. Pro tools do 5–7. The `align.ts` resampling
+  generalises; TrackMap already takes `traces[]` with N entries on
+  session detail. Easier than before now that the map proves the
+  rendering pattern.
 - **Auto-tuning suggestions** — Tune It Yourself's killer move and our
   natural moat. We have the symptom catalog in `/tune/diagnose`; the next
   step is running those rules in real time on the live data and surfacing
   "given the last 30 s, here are 2 likely fixes ranked by confidence."
-  See "The angle" below.
+  See "The angle" below. *Map makes the *where* of each suggestion
+  visualisable — e.g. "you understeer at this corner specifically."*
 - **Race-stats aggregates** — sessions per car, hours per event, best by
   tune. Racing View has it. All the data's in libsql; this is mostly
-  query work + a few cards.
+  query work + a few cards. Independent of the map.
+
+### Newly possible — unlocked by the track map
+
+The shipped TrackMap component proves the position-anchored rendering
+pattern and already accepts arbitrary point overlays. These were either
+gated on a 2D view or are dramatically cheaper now that one exists:
+
+- **Sector deltas (the next obvious pick).** Two implementation paths now
+  open: (a) equal-distance splits over `lap.distance` (one-liner over
+  existing data); (b) user-marked sector points clicked directly on the
+  rendered map and persisted per-event. Sector boundaries unlock the
+  apex-speed table and the best-theoretical-lap headline number.
+- **Track-map heatmaps** — same map, recolored by slip / gear / combined
+  slip / lateral G. Each one is *literally* a new color-mode chip on the
+  existing TrackMap. ~30 LOC per variant.
+- **Bottoming-events as map markers** — render a red dot at every
+  `(positionX, positionZ)` where suspension travel crossed 0.95. Turns
+  the original "list of bottoming events" idea into a map-anchored
+  visualisation; the list view can come along for the ride.
+- **Event-level aggregate map** — overlay every session's path on
+  `/events/:type/:id`. Already noted as deferred in the TrackMap plan;
+  the component supports multi-trace already, so this is mostly server
+  glue and a new endpoint mirroring `sessions/[id]/path.get.ts`.
+- **Click-to-seek on the replay map** — click anywhere on the rendered
+  track; the replay player jumps to the nearest frame by position. Today
+  you scrub the trace strip, which is time-based — clicking by location
+  reads more intuitively for "go to that corner."
+- **Racing-line deviation chip / overlay** — now that the decoder reads
+  `drivingLine` (s8 -128..127), we can colour the map by it (already
+  shipped as the "line" mode) AND surface a diagnostic chip when
+  deviation sustains over a window. Pairs naturally with the
+  auto-tuning suggestion direction.
+- **Corner-derived analysis** — apex detection from path curvature
+  (segments where heading changes fastest). Together with speed minima
+  this gives automatic corner enumeration without `lap.distance` heuristics.
 
 ### Probably not worth it for our scope
 
@@ -119,10 +166,23 @@ without bolting on AI or breaking the local-first / no-account principle.
 
 ## When picking the next thing
 
-The user signalled (2026-05-20) that if forced to pick one item next:
-**track map + sector deltas together** (DESIGN.md slices 2 + 3). Most other
-items on this list either depend on or strongly benefit from a 2D track
-representation to anchor against.
+Track map shipped 2026-05-20 (commit `d9b6bc1`). The natural next pick is
+**per-sector deltas + the best-theoretical-lap headline number**. Two
+follow-up directions, both attractive:
+
+1. **Sector deltas (analytical depth).** Equal-distance splits first as
+   the cheap default; user-marked boundaries on the map as the precise
+   v2. Unlocks the apex-speed table and lets the compare page show
+   per-sector delta time on the existing distance grid.
+2. **Bottoming-events as map markers (visual depth).** Cheap, immediate,
+   reads obviously — first time the tuning advice on `/tune/springs`
+   becomes "this exact corner, this exact compression."
+
+Both depend only on `lap.distance` (already on every frame) and the
+TrackMap component (shipped). The "auto-tuning suggestions" angle from
+the next section becomes much more compelling once sectors exist —
+suggestions can then localise themselves ("you're losing 0.4 s in
+sector 2; here's why").
 
 ---
 
