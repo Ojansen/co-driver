@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { INPUT_TRACE_LINES, motorTraceLines } from '~/utils/trace-lines'
+import { detectTrailBraking, trailBrakingBands } from '~/utils/trail-braking'
 
 const {
   telemetry,
@@ -46,6 +47,18 @@ const motorLines = computed(() => {
   }
   return motorTraceLines({ maxTorqueNm: mTq, maxPowerKw: mPw })
 })
+
+// Trail-braking bands: shade the brake-trace where the driver was braking
+// AND turning AND the brake was higher recently in the window. See
+// app/utils/trail-braking.ts and /tune/brakes for the why.
+const trailBrakingBandsLive = computed(() => {
+  const h = history.value
+  if (h.length < 2) return []
+  const flags = detectTrailBraking(
+    h.map(s => ({ timestampMs: s.t, brake: s.brake, steer: s.steer }))
+  )
+  return trailBrakingBands(flags)
+})
 </script>
 
 <template>
@@ -86,6 +99,7 @@ const motorLines = computed(() => {
         :scrubbable="true"
         :scrub-index="scrubIndex"
         :buffer-length="history.length"
+        :bands="trailBrakingBandsLive"
         @toggle-pause="onTogglePause"
         @scrub="setScrub"
       />

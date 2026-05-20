@@ -23,12 +23,16 @@ const props = withDefaults(defineProps<{
   /** Render the pause toggle in the header. Stacked second strips suppress it
    * so a single button controls both. */
   showPauseButton?: boolean
+  /** Optional shaded background bands by buffer index range. Used by the
+   * trail-braking detector to highlight where a behaviour is active. */
+  bands?: Array<{ startIdx: number, endIdx: number, color?: string }>
 }>(), {
   scrubbable: false,
   dragScrub: true,
   scrubIndex: null,
   bufferLength: 0,
-  showPauseButton: true
+  showPauseButton: true,
+  bands: () => []
 })
 
 const emit = defineEmits<{
@@ -87,6 +91,33 @@ const playheadX = computed<number | null>(() => {
   const offset = TRACE_BUFFER_SIZE - len
   const xStep = VIEW_W / (TRACE_BUFFER_SIZE - 1)
   return (offset + props.scrubIndex) * xStep
+})
+
+// Map a buffer index to a viewBox x — same math as `playheadX` so bands
+// align with the path lines pixel-perfectly.
+function xForIdx(idx: number): number {
+  const len = props.bufferLength || props.history.length
+  if (len <= 1) return 0
+  const offset = TRACE_BUFFER_SIZE - len
+  const xStep = VIEW_W / (TRACE_BUFFER_SIZE - 1)
+  return (offset + idx) * xStep
+}
+
+interface BandRect {
+  x: number
+  width: number
+  color: string
+}
+
+const bandRects = computed<BandRect[]>(() => {
+  const out: BandRect[] = []
+  for (const b of props.bands) {
+    const x1 = xForIdx(b.startIdx)
+    const x2 = xForIdx(b.endIdx)
+    if (x2 < x1) continue
+    out.push({ x: x1, width: Math.max(x2 - x1, 1), color: b.color ?? '#ef4444' })
+  }
+  return out
 })
 
 let dragging = false
@@ -168,6 +199,18 @@ function onPointerEnd(e: PointerEvent): void {
         @pointerup="onPointerEnd"
         @pointercancel="onPointerEnd"
       >
+        <!-- Behaviour bands (e.g. trail-braking shading) — beneath grid + paths -->
+        <rect
+          v-for="(band, i) in bandRects"
+          :key="`band-${i}`"
+          :x="band.x"
+          :y="PAD_T"
+          :width="band.width"
+          :height="TRACE_H"
+          :fill="band.color"
+          opacity="0.15"
+        />
+
         <!-- Grid: horizontal midline (zero for centered signals) and 25/75 references -->
         <line
           x1="0"

@@ -65,6 +65,37 @@ interface PathResponse {
 
 const { data: pathData } = await useFetch<PathResponse>(`/api/sessions/${sessionId}/path`)
 
+interface TrailBrakingLap {
+  lapNumber: number
+  ratio: number
+  events: number
+}
+interface TrailBrakingResponse {
+  sessionId: number
+  laps: TrailBrakingLap[]
+}
+
+// Skip trail-braking UI entirely for non-lap-based event types — drag and
+// freeroam don't have meaningful corner-entry phases to detect.
+const SECTOR_LIKE_TYPES: readonly EventType[] = ['race', 'street_race', 'touge', 'rally', 'cross_country']
+const hasTrailBraking = SECTOR_LIKE_TYPES.includes(eventTypeKey)
+
+const { data: trailBrakingData } = hasTrailBraking
+  ? await useFetch<TrailBrakingResponse>(`/api/sessions/${sessionId}/trail-braking`)
+  : { data: ref<TrailBrakingResponse | null>(null) }
+
+const trailBrakingByLap = computed<Map<number, TrailBrakingLap>>(() => {
+  const m = new Map<number, TrailBrakingLap>()
+  for (const l of trailBrakingData.value?.laps ?? []) m.set(l.lapNumber, l)
+  return m
+})
+
+function tbPctFor(lapNumber: number): string {
+  const entry = trailBrakingByLap.value.get(lapNumber)
+  if (!entry) return '—'
+  return Math.round(entry.ratio * 100) + '%'
+}
+
 // Build traces for TrackMap — best (fastest) lap marked as `best`, others backdrop.
 const trackTraces = computed(() => {
   const laps = pathData.value?.laps ?? []
@@ -342,6 +373,13 @@ async function confirmDelete() {
             <th class="px-3 py-2 text-left font-normal">
               Time
             </th>
+            <th
+              v-if="hasTrailBraking"
+              class="px-3 py-2 text-left font-normal"
+              title="Percentage of braking time where the driver was also turning the wheel"
+            >
+              TB%
+            </th>
             <th class="px-3 py-2 text-right font-normal" />
           </tr>
         </thead>
@@ -363,6 +401,12 @@ async function confirmDelete() {
             </td>
             <td class="px-3 py-2 text-zinc-100 tabular-nums">
               {{ formatLap(lap.timeMs) }}
+            </td>
+            <td
+              v-if="hasTrailBraking"
+              class="px-3 py-2 text-zinc-300 tabular-nums"
+            >
+              {{ tbPctFor(lap.lapNumber) }}
             </td>
             <td class="rounded-r-md px-3 py-2 text-right">
               <button

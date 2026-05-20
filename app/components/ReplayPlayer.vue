@@ -4,6 +4,7 @@ import { TRACE_BUFFER_SIZE } from '~/utils/trace'
 import { INPUT_TRACE_LINES, motorTraceLines } from '~/utils/trace-lines'
 import { binFrames } from '~/utils/dyno'
 import { pointsFromFrames } from '~/utils/track-map'
+import { detectTrailBraking, trailBrakingBands } from '~/utils/trail-braking'
 
 const props = defineProps<{
   frames: Telemetry[]
@@ -137,6 +138,20 @@ const trackCursor = computed(() => {
     distance: f.lap?.distance ?? 0
   }
 })
+
+// Trail-braking bands across the full lap. The replay-strip "history" is a
+// sliding window of the full lap; the bands need to be remapped from full-
+// lap indices into history-window indices each render.
+const trailBrakeFlagsFull = computed(() => detectTrailBraking(props.frames))
+
+const trailBrakingBandsReplay = computed(() => {
+  // The replay's history slice runs from `start = max(0, currentIndex+1 - BUFFER)`
+  // through `currentIndex`. Same math as `onTraceScrub` in this file.
+  const end = currentIndex.value + 1
+  const start = Math.max(0, end - TRACE_BUFFER_SIZE)
+  const sliced = trailBrakeFlagsFull.value.slice(start, end)
+  return trailBrakingBands(sliced)
+})
 </script>
 
 <template>
@@ -163,6 +178,7 @@ const trackCursor = computed(() => {
         :drag-scrub="false"
         :scrub-index="null"
         :buffer-length="history.length"
+        :bands="trailBrakingBandsReplay"
         @toggle-pause="toggle"
         @scrub="onTraceScrub"
       />
