@@ -134,12 +134,13 @@ The packet is a contiguous binary struct, little-endian. The Horizon variant has
 
 ### Components
 
-- **`server/utils/forza-bus.ts`** — exports a singleton `EventEmitter`. Plugin emits, WS handler subscribes per peer.
+- **`server/utils/forza-bus.ts`** — exports a singleton `EventEmitter`. Plugin emits, WS handler + recorder subscribe.
 - **`server/utils/decode.ts`** — single function `decodeCarDash(buf: Buffer): Telemetry`. Pure, well-tested.
-- **`server/plugins/forza-listener.ts`** — binds the UDP socket, decodes, throttles to ~30 Hz, emits.
-- **`server/routes/_ws.ts`** — `defineWebSocketHandler`. On `open`, register a listener on `forzaBus`; on `close`, remove it.
-- **`pages/index.vue`** — the corner view.
-- **`composables/useTelemetry.ts`** — opens the WebSocket, exposes a reactive `telemetry` ref + `connected` boolean.
+- **`server/plugins/forza-listener.ts`** — binds the UDP socket, decodes every valid packet, emits at the native ~60 Hz Forza rate.
+- **`server/routes/_ws.ts`** — `defineWebSocketHandler`. Subscribes peers to the bus; also parses `start` / `stop` inbound commands for the recorder.
+- **`server/utils/recorder.ts`** — v3 state machine. See §8.3.
+- **`pages/live.vue`** — the corner view dashboard (canonical URL). `pages/index.vue` redirects `/` → `/live`.
+- **`composables/useTelemetry.ts`** — opens the WebSocket; exposes `telemetry`, `connected`, plus a `useRecording()` peer for the start/stop UI.
 
 ### Render cadence
 
@@ -199,27 +200,35 @@ The "feels cool" RPM/boost dashboard is fun but doesn't change a setup decision.
 
 ## 5. Roadmap
 
-### v1 — Corner view (this design doc)
+Status markers (last reviewed 2026-05-20):
+- **[done]** — implemented on `main`
+- **[partial]** — server/data path in place, UI work outstanding
+- **[todo]** — not started
+
+### v1 — Corner view (this design doc) — **[done]** · commit `a42fced`
 - UDP listener, decoder, WS fan-out
-- Single-page corner view
+- Single-page corner view (now at `/live`)
 - Connection indicator + "waiting for telemetry" empty state
 
-### v2 — Input + chassis traces
+### v2 — Input + chassis traces — **[done]** · commit `03355d3`
 - Scrolling time-series strip below the corner view
 - Lines: throttle (green), brake (red), steering (yellow), yaw rate (blue)
-- 10-second sliding window
+- 10-second sliding window (600 samples @ 60 Hz)
 - Pause/scrub for post-corner analysis
 
-### v3 — Event-scoped session recorder
+### v3 — Event-scoped session recorder — **[done with two follow-ups]** · commit `7002666`
 - User-defined events, scoped by FH5 event type (rally / race / street race / cross country / drag / freeroam)
 - Manual Start/Stop recording from the dashboard (no auto-detect on `IsRaceOn`)
 - Persistent storage in drizzle + libsql: `events`, `cars`, `sessions`, `laps` (gzipped frames blob per lap)
-- PI-shift tune-label prompt so before/after-tune comparison works on the same car + event
-- Pages: `/events` → 6 type tiles → event detail with leaderboard + history + Start button; `/live` keeps the corner view
+- PI-shift tune-label *signal* over the wire — **[partial]**, the client-side modal that prompts the user to name the new tune (§8.8 step 3) and the session-detail tune-label edit (§8.8 step 4) are still **[todo]**.
+- Pages: `/events` → 6 type tiles → event detail with leaderboard + Start button; `/live` keeps the corner view. Global "Quick record" modal (§8.5) is **[todo]**.
 - Replay any captured lap by re-driving the corner view + trace strip from its frames blob
 - **Full spec in §8**
 
-### v4 — Tuning workbench
+### Rate bump — full 60 Hz, no throttle — **[done]** · commit `ebe82f3`
+- See §8.9 decision 14. Trace strip resized to 600 samples; recorder + WS both flow at native Forza rate.
+
+### v4 — Tuning workbench — **[todo]**
 - Overlay traces from two captured laps (same event, different car/tune)
 - Per-sector deltas, sector boundaries derived from distance along the route
 - "Bottoming events" list — every frame where `normalizedTravel > 0.95`, with the speed / steering at that frame
@@ -227,7 +236,7 @@ The "feels cool" RPM/boost dashboard is fun but doesn't change a setup decision.
 - Track map: plot `(PositionX, PositionZ)` colored by current speed
 - Decodes the v3 frames blobs on demand for analytics
 
-### v5 (maybe) — Hardware shift light
+### v5 (maybe) — Hardware shift light — **[todo]**
 - Tiny serial bridge from the Nitro server to a USB-attached RP2040 or Arduino
 - LEDs map to `currentRpm / engineMaxRpm`
 - Stays optional; the screen view should never depend on hardware
@@ -247,7 +256,7 @@ The "feels cool" RPM/boost dashboard is fun but doesn't change a setup decision.
 
 ## 7. Key code sketches
 
-These are the load-bearing pieces. Not full files — just the shape of each.
+These are the **v1-era** load-bearing pieces — just the shape of each. The actual code has evolved (no throttle, recorder + start/stop in the WS handler, typed bus events). Consult the source files for the current shape; treat this section as historical context for how v1 was built.
 
 ### Decoder (`server/utils/decode.ts`)
 
@@ -494,7 +503,7 @@ Locked in 2026-05-19 — what follows is the agreed shape, not a wish list.
 
 Explicitly *not* in v3: live deltas against best lap (deferred), automatic sector detection (v4), or coaching overlays (won't build, see §9).
 
-### 8.2 Data model
+### 8.2 Data model — **[done]**
 
 Stored in **drizzle + libsql** via `@nuxthub/db`. Schema in `server/db/schema.ts`; migrations generated via `npx nuxt db generate` and applied with `npx nuxt db migrate` (per `CLAUDE.md`). No hand-written SQL.
 
@@ -537,7 +546,7 @@ export const laps = sqliteTable('laps', {
 })
 ```
 
-### 8.3 Recording state machine — server-owned
+### 8.3 Recording state machine — server-owned — **[done]**
 
 The UDP listener already lives server-side and recording must survive a browser refresh, so the recorder lives in Nitro too. The browser only sends commands and renders state.
 
@@ -557,49 +566,55 @@ IDLE ─────────────────────────
 - **LapNumber change while RECORDING:** flush the frame buffer as the just-completed lap (`laps` row with `time_ms = LastLap` from the new packet, frames gzipped into `frames_blob`). Reset the buffer.
 - **RECORDING → IDLE (Stop):** **discard the partial lap** (any frames since the last `LapNumber` tick). Finalize the session row with `ended_at`. If `pi_at_start` differs from this car's previous session, queue a `tune_prompt`.
 
-### 8.4 WS protocol additions
+### 8.4 WS protocol additions — **[done]**
 
 The existing outbound `telemetry` stream is unchanged.
 
+> Implementation note: the wire discriminator field is **`type`**, not `kind` as originally drafted here — `type` was the existing convention in the v1 WS handler (`{ type: 'hello' }`, `{ type: 'telemetry', t }`) and the new messages match it. The shapes below have been updated.
+
 New inbound:
 ```ts
-{ kind: 'start', eventId: number, tuneLabel?: string | null }
-{ kind: 'stop' }
+{ type: 'start', eventId: number, tuneLabel?: string | null }
+{ type: 'stop' }
 ```
 
 New outbound:
 ```ts
-{ kind: 'recording_state', state: 'idle' } |
-{ kind: 'recording_state', state: 'recording', sessionId: number, eventId: number,
+{ type: 'recording_state', state: 'idle' } |
+{ type: 'recording_state', state: 'recording', sessionId: number, eventId: number,
                            carOrdinal: number, lapsCompleted: number } |
-{ kind: 'tune_prompt', sessionId: number, carOrdinal: number,
-                       previousPi: number, currentPi: number }
+{ type: 'tune_prompt', sessionId: number, carOrdinal: number,
+                       previousPi: number, currentPi: number } |
+{ type: 'error', message: string }
 ```
 
-`recording_state` is broadcast on every transition so multiple tabs stay in sync. `tune_prompt` fires once when a session ends with a PI shift; any tab can answer it.
+`recording_state` is broadcast on every transition so multiple tabs stay in sync. `tune_prompt` fires once when a session ends with a PI shift; any tab can answer it. `error` is sent back to the originating peer when a `start` fails (e.g. unknown event id, no telemetry yet).
 
-### 8.5 Navigation
+### 8.5 Navigation — **[mostly done]**
 
 ```
-/                     → redirect to /events
+/                     → 302 redirect to /live   (implementation diverges from the original spec, see note)
 /live                 → the v1+v2 corner view + trace strip (the "second screen")
-                        Shows a small "● REC" badge when state=recording.
+                        Shows a small "● REC" badge when state=recording, plus a Stop button.
 /events               → six type tiles (rally / race / street race / cross country / drag / freeroam)
-                        with event counts. Plus a global "Quick record" button.
-/events/:type         → list of events of that type, with last-driven date and best-lap-of-event preview.
-                        Inline "New event" entry.
+                        with event counts.    Global "Quick record" shortcut is [todo].
+/events/:type         → list of events of that type with inline "New event" entry.
+                        (Last-driven date and best-lap-of-event preview on each row are [todo].)
 /events/:type/:id     → event detail:
-                          • leaderboard (best lap per car × tune)
-                          • session history table
-                          • "Start recording" button (event pre-selected)
+                          • leaderboard (best lap per session, joined with car + tune + PI)
+                          • "Start Recording" button (event pre-selected; navigates to /live)
 /events/:type/:id/:sessionId
-                      → session detail: lap table with per-lap "▶ Replay" button.
-                        Replay re-drives the corner view from the lap's frames_blob.
+                      → session detail: metadata header + lap table with per-lap "▶ Replay".
+                        Replay mounts ReplayPlayer driven by the lap's frames_blob.
 ```
 
-"Quick record" is a modal version of the same picker, available from any page — for when the user is already on `/live` and doesn't want to navigate back.
+> Spec divergence: the original navigation block had `/` redirecting to `/events`. During slice-2 review the user pushed back — "the home screen redirects to /events so there is no active dash anymore" — so `/` now lands the user on the dashboard. The events browser remains at `/events`, reachable via the navbar.
 
-### 8.6 Frame storage — per-lap blob
+"Quick record" is a modal version of the same event picker, available from any page — for when the user is already on `/live` and doesn't want to navigate back. **[todo]**.
+
+The default Nuxt layout owns the navbar across every page: brand → Live/Events nav (with active states), persistent REC badge with Stop, WS status indicator, live T+timestamp when telemetry is flowing.
+
+### 8.6 Frame storage — per-lap blob — **[done]**
 
 A 2-minute lap at 60 Hz is ~7200 frames (~720 KB gzipped per lap). Storing them as rows would explode row counts across many sessions without buying any query power — frames are only ever read back as a whole for replay.
 
@@ -607,20 +622,20 @@ So: **one gzipped blob per `laps` row**. Encoded as a JSON array of decoded `Tel
 
 Display and capture share the same ~60 Hz cadence — see §8.9 decision 14.
 
-### 8.7 Lap timing — trust the in-game signal
+### 8.7 Lap timing — trust the in-game signal — **[done; fallback deferred]**
 
 When `LapNumber` advances, the new packet's `LastLap` field holds the just-completed lap time in seconds. Convert to ms, store. Same code path for **all event types** — circuits, drags, rallies, free roam.
 
-**Caveat to verify empirically:** FH5 may not tick `LapNumber` for drag / rally / cross-country / freeroam (point-to-point or unbounded events). If we observe that in-game, fall back per type: when the user clicks Stop and `LapNumber` never advanced, treat the entire Start→Stop window as one completed lap with `time_ms = endedAt - startedAt`. Add this fallback only after observing the missing tick — don't pre-build it.
+**Caveat to verify empirically:** FH5 may not tick `LapNumber` for drag / rally / cross-country / freeroam (point-to-point or unbounded events). If we observe that in-game, fall back per type: when the user clicks Stop and `LapNumber` never advanced, treat the entire Start→Stop window as one completed lap with `time_ms = endedAt - startedAt`. Add this fallback only after observing the missing tick — don't pre-build it. **Status:** fallback is **[todo]** until real-world data shows it's needed.
 
-### 8.8 Tune-label flow
+### 8.8 Tune-label flow — **[partial]**
 
 `CarPerformanceIndex` is in the packet; the tune label is not. So:
 
-1. At session start, snapshot `pi_at_start`.
-2. On session end, compare to the most recent prior session for the same `car_id`. If different, emit `tune_prompt`.
-3. UI shows a non-blocking modal: "PI went 745 → 758 — did you re-tune? Name this tune:" with a text input + autocomplete from prior tune labels for this car.
-4. `tune_label` is editable from any session detail page at any time.
+1. At session start, snapshot `pi_at_start`. — **[done]** in `server/utils/recorder.ts`.
+2. On session end, compare to the most recent prior session for the same `car_id`. If different, emit `tune_prompt`. — **[done]** server-side; client receives and stores the prompt in `useRecording().tunePrompt`.
+3. UI shows a non-blocking modal: "PI went 745 → 758 — did you re-tune? Name this tune:" with a text input + autocomplete from prior tune labels for this car. — **[todo]**.
+4. `tune_label` is editable from any session detail page at any time. — **[todo]** (requires a `PATCH /api/sessions/:id` endpoint and an inline editor on the session-detail page).
 
 PI shift is a *signal*, not a guarantee — the user might tune without changing PI (within the same class) or change PI without considering it a new tune. Manual override is always available.
 
