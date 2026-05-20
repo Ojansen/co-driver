@@ -12,7 +12,7 @@ const { data: events } = await useFetch<EventRow[]>('/api/events', { default: ()
 
 const counts = computed<Record<EventType, number>>(() => {
   const c: Record<EventType, number> = {
-    rally: 0, race: 0, street_race: 0, cross_country: 0, drag: 0, freeroam: 0
+    rally: 0, race: 0, street_race: 0, touge: 0, cross_country: 0, drag: 0, freeroam: 0
   }
   for (const e of events.value ?? []) c[e.type]++
   return c

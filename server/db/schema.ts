@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { blob, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
-export const eventType = ['rally', 'race', 'street_race', 'cross_country', 'drag', 'freeroam'] as const
+export const eventType = ['rally', 'race', 'street_race', 'touge', 'cross_country', 'drag', 'freeroam'] as const
 export type EventType = typeof eventType[number]
 
 export const events = sqliteTable('events', {

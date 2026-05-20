@@ -31,6 +31,7 @@ const errorMessage = ref<string | null>(null)
 const PLACEHOLDERS: Record<EventType, string> = {
   race: 'e.g. Goliath',
   street_race: 'e.g. Cancun Street Circuit',
+  touge: 'e.g. Akagi Downhill',
   rally: 'e.g. Sierra Nueva Sprint',
   cross_country: 'e.g. Quad Crossing',
   drag: 'e.g. Airfield 1/4 mile',
