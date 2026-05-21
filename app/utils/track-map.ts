@@ -1,7 +1,6 @@
 /**
  * Track-map helpers. Pure transforms over decoded Telemetry frames into a
- * compact `TrackPoint[]` for rendering by `app/components/TrackMap.vue` (and
- * for the server-side aggregation in `server/api/sessions/[id]/path.get.ts`).
+ * compact `TrackPoint[]` for rendering by `app/components/TrackMap.vue`.
  *
  * Forza world axes follow the engine convention: Y = up, X/Z = ground plane.
  * The top-down map plots (X, Z); the elevation strip plots Y vs lap.distance.

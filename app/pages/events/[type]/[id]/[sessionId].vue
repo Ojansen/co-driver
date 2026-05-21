@@ -2,7 +2,6 @@
 import { EVENT_TYPE_LABELS, isEventType, type EventType } from '~/utils/event-types'
 import { formatLap } from '~/utils/format'
 import type { Telemetry } from '../../../../../server/utils/decode'
-import type { TrackPoint } from '~/utils/track-map'
 import type { BuildSettings } from '~/utils/build-fields'
 
 const route = useRoute()
@@ -56,22 +55,6 @@ if (error.value || !data.value) {
   throw createError({ statusCode: 404, statusMessage: 'session not found' })
 }
 
-interface PathLap {
-  lapNumber: number
-  timeMs: number
-  points: TrackPoint[]
-}
-interface PathResponse {
-  sessionId: number
-  eventId: number
-  tuneLabel: string | null
-  piAtStart: number
-  car: { ordinal: number, class: number, displayName: string | null }
-  laps: PathLap[]
-}
-
-const { data: pathData } = await useFetch<PathResponse>(`/api/sessions/${sessionId}/path`)
-
 interface TrailBrakingLap {
   lapNumber: number
   ratio: number
@@ -90,6 +73,24 @@ const hasTrailBraking = SECTOR_LIKE_TYPES.includes(eventTypeKey)
 const { data: trailBrakingData } = hasTrailBraking
   ? await useFetch<TrailBrakingResponse>(`/api/sessions/${sessionId}/trail-braking`)
   : { data: ref<TrailBrakingResponse | null>(null) }
+
+// Compare with prior session (same car/event). Endpoint returns both sides
+// or `prior: null` when no prior exists; SessionCompare hides itself in that case.
+interface CompareSide {
+  sessionId: number
+  bestLapMs: number | null
+  avgTrailBrakingRatio: number | null
+  peakPowerKw: number | null
+  buildSnapshot: BuildSettings | null
+  tuneSnapshot: Record<string, string | number | null> | null
+  buildName: string | null
+  tuneName: string | null
+}
+interface CompareResponse {
+  current: CompareSide
+  prior: (CompareSide & { startedAt: string }) | null
+}
+const { data: compareData } = await useFetch<CompareResponse>(`/api/sessions/${sessionId}/compare`)
 
 const trailBrakingByLap = computed<Map<number, TrailBrakingLap>>(() => {
   const m = new Map<number, TrailBrakingLap>()
@@ -156,18 +157,6 @@ const buildDrivetrain = computed<string | null>(() => {
 const tuneSnapshotSettings = computed<Record<string, string | number | null> | null>(() => {
   const s = data.value?.session.tuneSnapshot
   return (s && typeof s === 'object') ? s as Record<string, string | number | null> : null
-})
-
-// Build traces for TrackMap — best (fastest) lap marked as `best`, others backdrop.
-const trackTraces = computed(() => {
-  const laps = pathData.value?.laps ?? []
-  if (laps.length === 0) return []
-  const fastest = laps.reduce((acc, l) => (l.timeMs < acc.timeMs ? l : acc), laps[0]!)
-  return laps.map(l => ({
-    points: l.points,
-    label: `lap ${l.lapNumber}`,
-    best: l === fastest
-  }))
 })
 
 // Replay state
@@ -457,13 +446,12 @@ async function confirmDelete() {
     </section>
 
     <section
-      v-if="trackTraces.length"
+      v-if="compareData?.prior"
       class="mb-8"
     >
-      <TrackMap
-        :traces="trackTraces"
-        title="track · session"
-        :subtitle="`${pathData?.car.displayName ?? ('#' + pathData?.car.ordinal)} · ${pathData?.tuneLabel ?? 'untuned'}`"
+      <SessionCompare
+        :current="compareData.current"
+        :prior="compareData.prior"
       />
     </section>
 

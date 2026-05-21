@@ -180,7 +180,8 @@ prescriptive coaching layer.
   existing TrackMap.
 - **Event-level aggregate map** — overlay every session's path on
   `/events/:type/:id`. TrackMap supports multi-trace already; mostly server
-  glue + an endpoint mirroring `sessions/[id]/path.get.ts`.
+  glue (unzip lap frame blobs, downsample to TrackPoint[] per lap) + a new
+  endpoint.
 - **Click-to-seek on the replay map** — click anywhere on the rendered
   track; replay jumps to the nearest frame by position. More intuitive than
   time-based trace-strip scrubbing for "go to that corner."
