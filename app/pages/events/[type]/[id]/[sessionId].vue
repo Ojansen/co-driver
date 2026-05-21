@@ -103,28 +103,60 @@ function tbPctFor(lapNumber: number): string {
   return Math.round(entry.ratio * 100) + '%'
 }
 
-// --- Build attachment ----------------------------------------------------
+// --- Build + tune attachment ---------------------------------------------
 
-const attachingBuild = ref(false)
+const attaching = ref(false)
 const attachError = ref<string | null>(null)
 
 async function attachBuild(buildId: number) {
-  if (attachingBuild.value) return
-  attachingBuild.value = true
+  if (attaching.value) return
+  attaching.value = true
   attachError.value = null
   try {
+    // Detaching tune too when the build changes — old tune may belong to a
+    // different build and the constraint would be wrong otherwise.
     await $fetch(`/api/sessions/${sessionId}`, {
       method: 'PATCH',
-      body: { buildId }
+      body: { buildId, tuneId: null }
     })
     await refreshNuxtData()
   } catch (err) {
     const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
     attachError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'attach failed'
   } finally {
-    attachingBuild.value = false
+    attaching.value = false
   }
 }
+
+async function attachTune(tuneId: number) {
+  if (attaching.value) return
+  attaching.value = true
+  attachError.value = null
+  try {
+    await $fetch(`/api/sessions/${sessionId}`, {
+      method: 'PATCH',
+      body: { tuneId }
+    })
+    await refreshNuxtData()
+  } catch (err) {
+    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
+    attachError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'attach failed'
+  } finally {
+    attaching.value = false
+  }
+}
+
+const buildDrivetrain = computed<string | null>(() => {
+  const snap = data.value?.session.buildSnapshot
+  if (!snap || typeof snap !== 'object') return null
+  const dt = (snap as { drivetrain?: unknown }).drivetrain
+  return typeof dt === 'string' ? dt : null
+})
+
+const tuneSnapshotSettings = computed<Record<string, string | number | null> | null>(() => {
+  const s = data.value?.session.tuneSnapshot
+  return (s && typeof s === 'object') ? s as Record<string, string | number | null> : null
+})
 
 // Build traces for TrackMap — best (fastest) lap marked as `best`, others backdrop.
 const trackTraces = computed(() => {
@@ -381,7 +413,7 @@ async function confirmDelete() {
 
     <section
       v-if="data"
-      class="mb-8"
+      class="mb-8 space-y-3"
     >
       <BuildDisplay
         v-if="data.session.buildSnapshot"
@@ -393,12 +425,32 @@ async function confirmDelete() {
         v-else
         :car-ordinal="data.session.carOrdinal"
         :current-build-id="data.session.buildId"
-        :disabled="attachingBuild"
+        :disabled="attaching"
         @attach="attachBuild"
       />
+
+      <!-- Tune side: only shown once a build is attached -->
+      <template v-if="data.session.buildId">
+        <TuneDisplay
+          v-if="tuneSnapshotSettings"
+          :tune="tuneSnapshotSettings"
+          :tune-name="data.session.tuneName"
+          :drivetrain="buildDrivetrain"
+          @edit="$router.push(`/cars/${data.session.carOrdinal}/builds/${data.session.buildId}`)"
+        />
+        <TunePicker
+          v-else
+          :build-id="data.session.buildId"
+          :car-ordinal="data.session.carOrdinal"
+          :current-tune-id="data.session.tuneId"
+          :disabled="attaching"
+          @attach="attachTune"
+        />
+      </template>
+
       <div
         v-if="attachError"
-        class="mt-2 rounded-sm border border-red-500/40 bg-red-500/10 p-2 font-mono text-xs text-red-300"
+        class="rounded-sm border border-red-500/40 bg-red-500/10 p-2 font-mono text-xs text-red-300"
       >
         {{ attachError }}
       </div>
