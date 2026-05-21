@@ -12,6 +12,13 @@ Last refreshed 2026-05-21 (post-`/upgrade`, post-philosophy lock).
 
 ## Recently shipped
 
+- **Click-to-seek on the replay map** — commit `a5cb9b3`. Alt-click on the
+  replay TrackMap jumps to the nearest frame by world (x, z) position.
+  Adopted from the MoTeC/AiM pro-tool pattern.
+- **Differential cursor on TraceStrip** — commit `a5cb9b3`. Alt-click drops
+  a cyan anchor; header shows Δt and right-edge pills switch to Δ-mode per
+  channel. Active on `/live` and `/replay`. MoTeC i2's hallmark
+  interaction, adapted to our component.
 - **`/upgrade` reference** — commit `af0bbce`. Companion to `/tune` covering
   the build-side: 11 categories, per-discipline efficiency matrix, traps,
   11-step homologation flow, 10 build smells. Completes the build-vs-tune
@@ -154,10 +161,6 @@ prescriptive coaching layer.
   measurement — a smooth arc from top to side is trail-braking visible at
   a glance, without saying so in copy. *(pro-tool standard — friction
   circle is in every pro tool.)*
-- **Differential cursor on TraceStrip** — drop two cursors anywhere on a
-  trace; surface Δt and Δchannel between them. Interaction upgrade on the
-  existing component; turns every trace into an ad-hoc measurement tool.
-  *(pro-tool standard — hallmark of MoTeC i2.)*
 - **Friction-circle utilization channel** — instantaneous "% of theoretical
   friction circle used" as a derived trace. Pairs with the G-G trail.
   *(pro-tool standard — combined-slip math channel.)*
@@ -182,9 +185,6 @@ prescriptive coaching layer.
   `/events/:type/:id`. TrackMap supports multi-trace already; mostly server
   glue (unzip lap frame blobs, downsample to TrackPoint[] per lap) + a new
   endpoint.
-- **Click-to-seek on the replay map** — click anywhere on the rendered
-  track; replay jumps to the nearest frame by position. More intuitive than
-  time-based trace-strip scrubbing for "go to that corner."
 - **Racing-line measurement** — `drivingLine` (s8 -128..127) is already
   decoded and the "line" color mode ships. Surface sustained deviation as a
   *measurement window* (not a chip that says "you're off-line").
