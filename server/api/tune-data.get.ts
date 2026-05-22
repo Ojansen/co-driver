@@ -41,18 +41,19 @@ export default defineEventHandler(async (event) => {
   let buildId: number | null = null
   let buildName: string | null = null
 
+  // Explicit params that don't resolve → empty bundle. Don't silently fall
+  // through to last-driven, since the user asked for a specific context.
   if (carOrdinalParam !== null && Number.isFinite(carOrdinalParam)) {
     const car = (await db
       .select({ id: schema.cars.id, ordinal: schema.cars.ordinal, displayName: schema.cars.displayName, class: schema.cars.class })
       .from(schema.cars)
       .where(eq(schema.cars.ordinal, carOrdinalParam))
       .limit(1))[0]
-    if (car) {
-      carId = car.id
-      carOrdinal = car.ordinal
-      carDisplayName = car.displayName
-      carClass = car.class
-    }
+    if (!car) return emptyBundle(null, null, null, null, null, lapLimit)
+    carId = car.id
+    carOrdinal = car.ordinal
+    carDisplayName = car.displayName
+    carClass = car.class
   }
 
   if (buildIdParam !== null && Number.isFinite(buildIdParam)) {
@@ -61,22 +62,21 @@ export default defineEventHandler(async (event) => {
       .from(schema.builds)
       .where(eq(schema.builds.id, buildIdParam))
       .limit(1))[0]
-    if (b) {
-      buildId = b.id
-      buildName = b.name
-      // Lock car to the build's car if not already set, or override if mismatched.
-      if (carId === null || carId !== b.carId) {
-        const car = (await db
-          .select({ id: schema.cars.id, ordinal: schema.cars.ordinal, displayName: schema.cars.displayName, class: schema.cars.class })
-          .from(schema.cars)
-          .where(eq(schema.cars.id, b.carId))
-          .limit(1))[0]
-        if (car) {
-          carId = car.id
-          carOrdinal = car.ordinal
-          carDisplayName = car.displayName
-          carClass = car.class
-        }
+    if (!b) return emptyBundle(carOrdinal, carDisplayName, carClass, null, null, lapLimit)
+    buildId = b.id
+    buildName = b.name
+    // Lock car to the build's car if not already set, or override if mismatched.
+    if (carId === null || carId !== b.carId) {
+      const car = (await db
+        .select({ id: schema.cars.id, ordinal: schema.cars.ordinal, displayName: schema.cars.displayName, class: schema.cars.class })
+        .from(schema.cars)
+        .where(eq(schema.cars.id, b.carId))
+        .limit(1))[0]
+      if (car) {
+        carId = car.id
+        carOrdinal = car.ordinal
+        carDisplayName = car.displayName
+        carClass = car.class
       }
     }
   }

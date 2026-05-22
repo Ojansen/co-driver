@@ -54,6 +54,8 @@ const relevantDiagnoses = computed(() =>
       {{ cat.summary }}
     </p>
 
+    <YourDataPanel :slug="slug" />
+
     <section class="mb-10">
       <h2 class="mb-3 font-mono text-xs uppercase tracking-[0.3em] text-zinc-400">
         What it does
