@@ -34,7 +34,7 @@ const dvrSeconds = computed<number | null>(() => {
 })
 
 // Window-max for torque/power so the motor strip auto-scales to whatever the
-// current engine is putting out across the visible 10 s. Recomputing on every
+// current engine is putting out across the visible 30 s. Recomputing on every
 // reactive change is cheap (we already walk `history` for the path draw).
 const motorLines = computed(() => {
   const h = history.value

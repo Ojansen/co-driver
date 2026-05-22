@@ -379,18 +379,18 @@ function onPointerEnd(e: PointerEvent): void {
           opacity="0.95"
         />
 
-        <!-- Time axis labels -->
+        <!-- Time axis: label every 5 s over the 30 s window -->
         <text
-          v-for="i in 5"
+          v-for="i in 7"
           :key="`t${i}`"
-          :x="VIEW_W * ((i - 1) / 4)"
+          :x="VIEW_W * ((i - 1) / 6)"
           :y="VIEW_H - 4"
-          :text-anchor="i === 1 ? 'start' : i === 5 ? 'end' : 'middle'"
+          :text-anchor="i === 1 ? 'start' : i === 7 ? 'end' : 'middle'"
           fill="#71717a"
           font-size="8"
           font-family="monospace"
         >
-          {{ -10 + (i - 1) * 2.5 === 0 ? 'now' : (-10 + (i - 1) * 2.5).toFixed(1) + 's' }}
+          {{ i === 7 ? 'now' : `-${30 - (i - 1) * 5}s` }}
         </text>
 
         <!-- Anchor cursor (differential — alt+click) -->
