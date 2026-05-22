@@ -77,14 +77,26 @@ function buildLinePaths(): string[] {
   })
 }
 
-const refreshPaths = useThrottleFn(() => {
+// Dirty-flag + interval throttle: watchers do nothing but flag the next tick
+// (cheap, deterministic), and a 33 ms interval coalesces all pending changes
+// into a single rebuild ≈30 Hz. When paused/no new data, dirty stays false
+// so the interval is a no-op.
+let pathsDirty = true
+function rebuildPaths(): void {
+  if (!pathsDirty) return
+  pathsDirty = false
   linePaths.value = buildLinePaths()
-}, 33, true)
+}
 
-// Length changes cover both live appends and scrub-induced replay updates.
-// Lines reference changes when the parent swaps the line set.
-watch(() => props.history.length, refreshPaths, { immediate: true })
-watch(() => props.lines, refreshPaths)
+watch(() => props.history.length, () => {
+  pathsDirty = true
+})
+watch(() => props.lines, () => {
+  pathsDirty = true
+  rebuildPaths()
+}, { immediate: true })
+
+useIntervalFn(rebuildPaths, 33)
 
 const latest = computed<TraceSample | null>(() => {
   return props.history.length > 0 ? props.history[props.history.length - 1] ?? null : null
