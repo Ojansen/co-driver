@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import uPlot from 'uplot'
+import 'uplot/dist/uPlot.min.css'
 import { TRACE_BUFFER_SIZE, type TraceSample } from '~/utils/trace'
 import type { LineDef } from '~/utils/trace-lines'
 
@@ -40,70 +42,37 @@ const emit = defineEmits<{
   scrub: [index: number | null]
 }>()
 
-const VIEW_W = 1000
-const VIEW_H = 160
-const PAD_T = 12
-const PAD_B = 18
-const TRACE_H = VIEW_H - PAD_T - PAD_B
+const STRIP_HEIGHT = 160
+const WINDOW_SECONDS = TRACE_BUFFER_SIZE / 60 // 30 s @ 60 Hz fan-out
 
-/**
- * Plot the buffer as an SVG polyline points string. The buffer's logical
- * x-axis is fixed to TRACE_BUFFER_SIZE — short buffers (just-started) draw
- * a line that fills the right side, leaving the left empty.
- *
- * Rebuilt on a throttled schedule (~30 Hz) rather than reactively on every
- * push, because at full buffer × N lines × M strips this dominates /live's
- * CPU at 60 Hz. 30 Hz is visually indistinguishable for thin SVG lines.
- */
-const linePaths = shallowRef<string[]>(props.lines.map(() => ''))
-
-function buildLinePaths(): string[] {
+// --- uPlot data assembly --------------------------------------------------
+// uPlot wants column-major aligned data: [xs, ys_line0, ys_line1, …].
+// We pre-normalize each value into 0..1 using the LineDef's existing
+// `norm()` and flip it so 1 = top of strip (uPlot's y axis is bottom-up).
+function buildData(): uPlot.AlignedData {
   const h = props.history
   const lines = props.lines
-  if (h.length < 2) return lines.map(() => '')
-  const xStep = VIEW_W / (TRACE_BUFFER_SIZE - 1)
-  const offset = TRACE_BUFFER_SIZE - h.length
-  return lines.map((line) => {
-    const parts: string[] = []
-    for (let i = 0; i < h.length; i++) {
-      const sample = h[i]!
-      const x = (offset + i) * xStep
-      const raw = sample[line.key]
+  const xs = new Float64Array(h.length)
+  const series: Float64Array[] = lines.map(() => new Float64Array(h.length))
+  for (let i = 0; i < h.length; i++) {
+    const s = h[i]!
+    xs[i] = s.t / 1000 // seconds
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li]!
+      const raw = s[line.key]
       const v = typeof raw === 'number' ? raw : 0
-      const y = PAD_T + line.norm(v) * TRACE_H
-      parts.push((i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1))
+      // line.norm returns 0..1 in SVG-y (0 = top); uPlot is bottom-up,
+      // so invert.
+      series[li]![i] = 1 - line.norm(v)
     }
-    return parts.join(' ')
-  })
+  }
+  return [xs, ...series] as unknown as uPlot.AlignedData
 }
 
-// Dirty-flag + interval throttle: watchers do nothing but flag the next tick
-// (cheap, deterministic), and a 33 ms interval coalesces all pending changes
-// into a single rebuild ≈30 Hz. When paused/no new data, dirty stays false
-// so the interval is a no-op.
-let pathsDirty = true
-function rebuildPaths(): void {
-  if (!pathsDirty) return
-  pathsDirty = false
-  linePaths.value = buildLinePaths()
-}
-
-// Watching length alone breaks once the ring buffer is full: a push+shift
-// in the same frame leaves length unchanged so Vue batches it to a no-op.
-// Latest-sample timestamp is monotonically increasing per push and never
-// settles, so it's the right signal in both the filling and steady states.
-watch(() => {
-  const h = props.history
-  return h.length > 0 ? h[h.length - 1]!.t : -1
-}, () => {
-  pathsDirty = true
-})
-watch(() => props.lines, () => {
-  pathsDirty = true
-  rebuildPaths()
-}, { immediate: true })
-
-useIntervalFn(rebuildPaths, 33)
+// --- Live anchor + scrub state -------------------------------------------
+// Anchor sticks to a sample timestamp so it tracks the underlying data as
+// the ring buffer scrolls.
+const anchorT = ref<number | null>(null)
 
 const latest = computed<TraceSample | null>(() => {
   return props.history.length > 0 ? props.history[props.history.length - 1] ?? null : null
@@ -116,124 +85,36 @@ function latestValue(line: LineDef): number {
   return typeof raw === 'number' ? raw : 0
 }
 
-// 0.5 represents the zero-line for centered signals (steer, yawRate).
-const midY = PAD_T + 0.5 * TRACE_H
-
-// --- Scrub interaction -----------------------------------------------------
-
-const playheadX = computed<number | null>(() => {
-  if (props.scrubIndex === null || props.scrubIndex === undefined) return null
-  const len = props.bufferLength
-  if (len <= 1) return null
-  const offset = TRACE_BUFFER_SIZE - len
-  const xStep = VIEW_W / (TRACE_BUFFER_SIZE - 1)
-  return (offset + props.scrubIndex) * xStep
-})
-
-// Map a buffer index to a viewBox x — same math as `playheadX` so bands
-// align with the path lines pixel-perfectly.
-function xForIdx(idx: number): number {
-  const len = props.bufferLength || props.history.length
-  if (len <= 1) return 0
-  const offset = TRACE_BUFFER_SIZE - len
-  const xStep = VIEW_W / (TRACE_BUFFER_SIZE - 1)
-  return (offset + idx) * xStep
-}
-
-interface BandRect {
-  x: number
-  width: number
-  color: string
-}
-
-const bandRects = computed<BandRect[]>(() => {
-  const out: BandRect[] = []
-  for (const b of props.bands) {
-    const x1 = xForIdx(b.startIdx)
-    const x2 = xForIdx(b.endIdx)
-    if (x2 < x1) continue
-    out.push({ x: x1, width: Math.max(x2 - x1, 1), color: b.color ?? '#ef4444' })
+// Map a sample timestamp → buffer index by linear scan. n=1800 max so
+// this is fine; binary search would optimize hot paths only.
+function idxForTimestamp(tMs: number): number | null {
+  const h = props.history
+  if (h.length === 0) return null
+  let bestIdx = 0
+  let bestDiff = Infinity
+  for (let i = 0; i < h.length; i++) {
+    const d = Math.abs(h[i]!.t - tMs)
+    if (d < bestDiff) {
+      bestDiff = d
+      bestIdx = i
+    }
   }
-  return out
-})
-
-let dragging = false
-
-/** Map a pointer event to a buffer index, or null if out of range. */
-function idxFromPointer(e: PointerEvent): number | null {
-  const len = props.bufferLength
-  if (len <= 1) return null
-  const target = e.currentTarget as SVGSVGElement | null
-  if (!target) return null
-  const rect = target.getBoundingClientRect()
-  if (rect.width <= 0) return null
-  const fx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-  const slot = fx * (TRACE_BUFFER_SIZE - 1)
-  const offset = TRACE_BUFFER_SIZE - len
-  const idx = Math.round(slot - offset)
-  if (idx < 0) return null
-  if (idx >= len) return null
-  return idx
+  return bestIdx
 }
-
-function updateScrub(e: PointerEvent): void {
-  const idx = idxFromPointer(e)
-  if (idx === null) return
-  const len = props.bufferLength
-  // Snap to "live"/"current" when within ~5 slots of the right edge.
-  emit('scrub', idx >= len - 5 ? null : idx)
-}
-
-// --- Differential cursor (anchor) -----------------------------------------
-// Alt+click sets/moves an anchor cursor. Anchor is stored as a sample
-// timestamp (sample.t) so it sticks to the data, not the buffer index — when
-// the rolling buffer scrolls, the anchor scrolls with it and falls off the
-// left when the underlying sample drops out of the window.
-
-const anchorT = ref<number | null>(null)
 
 const anchorIdx = computed<number | null>(() => {
   if (anchorT.value === null) return null
   const h = props.history
   if (h.length === 0) return null
-  // If the anchor predates the oldest sample, it's scrolled off the buffer.
-  if (h[0]!.t > anchorT.value) return null
-  let bestIdx = 0
-  let bestDiff = Infinity
-  for (let i = 0; i < h.length; i++) {
-    const diff = Math.abs(h[i]!.t - anchorT.value)
-    if (diff < bestDiff) {
-      bestDiff = diff
-      bestIdx = i
-    }
-  }
-  return bestIdx
+  if (h[0]!.t > anchorT.value) return null // scrolled off
+  return idxForTimestamp(anchorT.value)
 })
 
-const anchorX = computed<number | null>(() => {
-  const idx = anchorIdx.value
-  return idx === null ? null : xForIdx(idx)
-})
-
-// Primary index used for delta math — either the parent's scrub position or
-// the latest sample when no scrub is active.
 const primaryIdx = computed<number | null>(() => {
   if (props.scrubIndex !== null && props.scrubIndex !== undefined) return props.scrubIndex
   if (props.history.length > 0) return props.history.length - 1
   return null
 })
-
-function setAnchorFromPointer(e: PointerEvent): void {
-  const idx = idxFromPointer(e)
-  if (idx === null) return
-  const sample = props.history[idx]
-  if (!sample) return
-  anchorT.value = sample.t
-}
-
-function clearAnchor(): void {
-  anchorT.value = null
-}
 
 const deltaTms = computed<number | null>(() => {
   const a = anchorIdx.value
@@ -256,7 +137,6 @@ function deltaForLine(line: LineDef): string {
   const pv = typeof sp[line.key] === 'number' ? (sp[line.key] as number) : 0
   const d = pv - av
   const formatted = line.fmt(d)
-  // fmt may already prefix '+' for non-negative (steer); don't double it.
   return d > 0 && !formatted.startsWith('+') ? '+' + formatted : formatted
 }
 
@@ -267,6 +147,212 @@ function formatDeltaT(ms: number): string {
   return sign + (abs / 1000).toFixed(2) + 's'
 }
 
+function clearAnchor(): void {
+  anchorT.value = null
+}
+
+// --- uPlot lifecycle ------------------------------------------------------
+const plotEl = ref<HTMLDivElement | null>(null)
+let plot: uPlot | null = null
+let resizeObs: ResizeObserver | null = null
+
+function buildOpts(width: number): uPlot.Options {
+  return {
+    width,
+    height: STRIP_HEIGHT,
+    pxAlign: 0,
+    legend: { show: false },
+    cursor: {
+      // We handle scrub/anchor ourselves on the overlay — disable uPlot's
+      // built-in cursor visuals so the canvas stays clean.
+      show: false,
+      drag: { x: false, y: false, setScale: false }
+    },
+    select: { show: false, left: 0, top: 0, width: 0, height: 0 },
+    axes: [
+      {
+        stroke: '#71717a',
+        grid: { stroke: '#27272a', width: 0.5 },
+        ticks: { stroke: '#27272a', width: 0.5, size: 4 },
+        font: '8px monospace',
+        // Format absolute seconds as "-Ns" relative to the latest sample.
+        values: (_u, vals) => {
+          const lat = props.history.length > 0 ? props.history[props.history.length - 1]!.t / 1000 : 0
+          return vals.map((v) => {
+            const dt = v - lat
+            if (Math.abs(dt) < 0.5) return 'now'
+            return Math.round(dt) + 's'
+          })
+        },
+        // Force ticks every 5 s across the visible window.
+        splits: (_u, _ax, min, max) => {
+          const out: number[] = []
+          // Round max down to a 5 s boundary, then step back to min.
+          const top = Math.floor(max / 5) * 5
+          for (let t = top; t >= min; t -= 5) out.push(t)
+          return out.reverse()
+        }
+      },
+      { show: false }
+    ],
+    scales: {
+      x: {
+        time: false,
+        // Always show the trailing 30 s window. dataMax = latest sample's t.
+        range: (_u, _dMin, dMax) => [dMax - WINDOW_SECONDS, dMax]
+      },
+      y: {
+        range: [0, 1]
+      }
+    },
+    series: [
+      { label: 't' },
+      ...props.lines.map(line => ({
+        label: line.label,
+        stroke: line.color,
+        width: 1.5,
+        points: { show: false }
+      }))
+    ],
+    hooks: {
+      draw: [drawOverlays]
+    }
+  }
+}
+
+// Behaviour bands + scrub playhead + anchor cursor — all drawn directly
+// on uPlot's canvas via the `draw` hook so they redraw whenever uPlot does.
+function drawOverlays(u: uPlot): void {
+  const ctx = u.ctx
+  const top = u.bbox.top
+  const height = u.bbox.height
+
+  // bands
+  for (const band of props.bands) {
+    const ts = props.history[band.startIdx]?.t
+    const te = props.history[band.endIdx]?.t
+    if (ts == null || te == null) continue
+    const x1 = u.valToPos(ts / 1000, 'x', true)
+    const x2 = u.valToPos(te / 1000, 'x', true)
+    if (x2 < x1) continue
+    ctx.fillStyle = (band.color ?? '#ef4444') + '26' // ~0.15 alpha
+    ctx.fillRect(x1, top, Math.max(1, x2 - x1), height)
+  }
+
+  // scrub playhead
+  const sIdx = props.scrubIndex
+  if (sIdx !== null && sIdx !== undefined) {
+    const s = props.history[sIdx]
+    if (s) {
+      const px = u.valToPos(s.t / 1000, 'x', true)
+      ctx.strokeStyle = '#fafafa'
+      ctx.lineWidth = 1
+      ctx.globalAlpha = 0.75
+      ctx.beginPath()
+      ctx.moveTo(px, top)
+      ctx.lineTo(px, top + height)
+      ctx.stroke()
+      ctx.globalAlpha = 1
+    }
+  }
+
+  // anchor cursor (alt+click)
+  if (anchorT.value !== null && anchorIdx.value !== null) {
+    const px = u.valToPos(anchorT.value / 1000, 'x', true)
+    ctx.strokeStyle = '#22d3ee'
+    ctx.lineWidth = 1
+    ctx.globalAlpha = 0.85
+    ctx.setLineDash([3, 2])
+    ctx.beginPath()
+    ctx.moveTo(px, top)
+    ctx.lineTo(px, top + height)
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.globalAlpha = 1
+  }
+}
+
+onMounted(() => {
+  if (!plotEl.value) return
+  const w = plotEl.value.clientWidth || 1000
+  plot = new uPlot(buildOpts(w), buildData(), plotEl.value)
+
+  // Re-size with the container; debouncing isn't worth it for the small
+  // panel widths we deal with.
+  resizeObs = new ResizeObserver((entries) => {
+    if (!plot) return
+    const cw = entries[0]?.contentRect.width
+    if (cw && cw > 0) plot.setSize({ width: cw, height: STRIP_HEIGHT })
+  })
+  resizeObs.observe(plotEl.value)
+})
+
+onBeforeUnmount(() => {
+  resizeObs?.disconnect()
+  plot?.destroy()
+  plot = null
+})
+
+// --- Update pump ---------------------------------------------------------
+// Dirty-flag + 33 ms interval so a steady-state push+shift (which leaves
+// length unchanged at full buffer) still updates via the latest-sample
+// timestamp signal.
+let pathsDirty = true
+function flush(): void {
+  if (!plot || !pathsDirty) return
+  pathsDirty = false
+  plot.setData(buildData())
+}
+
+watch(() => {
+  const h = props.history
+  return h.length > 0 ? h[h.length - 1]!.t : -1
+}, () => {
+  pathsDirty = true
+})
+watch(() => props.lines, () => {
+  // Line set changed — rebuild the plot wholesale because series colours,
+  // count and labels are baked into uPlot options at construction time.
+  if (!plot || !plotEl.value) return
+  const w = plotEl.value.clientWidth || 1000
+  plot.destroy()
+  plot = new uPlot(buildOpts(w), buildData(), plotEl.value)
+})
+// Scrub or anchor change → no data change, just an overlay redraw.
+watch([() => props.scrubIndex, () => props.bands, anchorT], () => {
+  plot?.redraw(false)
+}, { deep: true })
+
+useIntervalFn(flush, 33)
+
+// --- Scrub / anchor interaction ------------------------------------------
+let dragging = false
+
+function idxFromPointer(e: PointerEvent): number | null {
+  if (!plot) return null
+  const rect = plot.over.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  if (x < 0 || x > rect.width) return null
+  const tSec = plot.posToVal(x, 'x')
+  if (Number.isNaN(tSec)) return null
+  return idxForTimestamp(tSec * 1000)
+}
+
+function updateScrub(e: PointerEvent): void {
+  const idx = idxFromPointer(e)
+  if (idx === null) return
+  const len = props.bufferLength
+  emit('scrub', idx >= len - 5 ? null : idx)
+}
+
+function setAnchorFromPointer(e: PointerEvent): void {
+  const idx = idxFromPointer(e)
+  if (idx === null) return
+  const sample = props.history[idx]
+  if (!sample) return
+  anchorT.value = sample.t
+}
+
 function onPointerDown(e: PointerEvent): void {
   if (!props.scrubbable) return
   if (e.altKey) {
@@ -275,7 +361,7 @@ function onPointerDown(e: PointerEvent): void {
   }
   updateScrub(e)
   if (!props.dragScrub) return
-  const target = e.currentTarget as SVGSVGElement
+  const target = e.currentTarget as HTMLElement
   target.setPointerCapture(e.pointerId)
   dragging = true
 }
@@ -288,7 +374,7 @@ function onPointerMove(e: PointerEvent): void {
 function onPointerEnd(e: PointerEvent): void {
   if (!dragging) return
   dragging = false
-  const target = e.currentTarget as SVGSVGElement
+  const target = e.currentTarget as HTMLElement
   if (target.hasPointerCapture(e.pointerId)) target.releasePointerCapture(e.pointerId)
 }
 </script>
@@ -339,122 +425,18 @@ function onPointerEnd(e: PointerEvent): void {
     </header>
 
     <div class="relative">
-      <svg
-        :viewBox="`0 0 ${VIEW_W} ${VIEW_H}`"
-        class="w-full"
+      <!-- uPlot mounts inside this element. The overlay listeners drive
+           scrub + anchor; uPlot's own cursor is disabled (see opts). -->
+      <div
+        ref="plotEl"
+        class="trace-plot w-full"
         :class="scrubbable ? 'cursor-ew-resize' : ''"
-        preserveAspectRatio="none"
+        :style="{ height: STRIP_HEIGHT + 'px' }"
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
         @pointerup="onPointerEnd"
         @pointercancel="onPointerEnd"
-      >
-        <!-- Behaviour bands (e.g. trail-braking shading) — beneath grid + paths -->
-        <rect
-          v-for="(band, i) in bandRects"
-          :key="`band-${i}`"
-          :x="band.x"
-          :y="PAD_T"
-          :width="band.width"
-          :height="TRACE_H"
-          :fill="band.color"
-          opacity="0.15"
-        />
-
-        <!-- Grid: horizontal midline (zero for centered signals) and 25/75 references -->
-        <line
-          x1="0"
-          :y1="midY"
-          :x2="VIEW_W"
-          :y2="midY"
-          stroke="#3f3f46"
-          stroke-width="0.5"
-          stroke-dasharray="3,3"
-        />
-        <line
-          x1="0"
-          :y1="PAD_T + TRACE_H * 0.25"
-          :x2="VIEW_W"
-          :y2="PAD_T + TRACE_H * 0.25"
-          stroke="#27272a"
-          stroke-width="0.5"
-        />
-        <line
-          x1="0"
-          :y1="PAD_T + TRACE_H * 0.75"
-          :x2="VIEW_W"
-          :y2="PAD_T + TRACE_H * 0.75"
-          stroke="#27272a"
-          stroke-width="0.5"
-        />
-
-        <!-- Time tick markers: every 2.5s -->
-        <g
-          v-for="i in 4"
-          :key="i"
-        >
-          <line
-            :x1="VIEW_W * (i / 4)"
-            :y1="PAD_T"
-            :x2="VIEW_W * (i / 4)"
-            :y2="VIEW_H - PAD_B"
-            stroke="#27272a"
-            stroke-width="0.5"
-          />
-        </g>
-
-        <!-- Trace lines -->
-        <path
-          v-for="(line, i) in lines"
-          :key="line.key"
-          :d="linePaths[i]"
-          fill="none"
-          :stroke="line.color"
-          stroke-width="1.5"
-          stroke-linejoin="round"
-          stroke-linecap="round"
-          opacity="0.95"
-        />
-
-        <!-- Time axis: label every 5 s over the 30 s window -->
-        <text
-          v-for="i in 7"
-          :key="`t${i}`"
-          :x="VIEW_W * ((i - 1) / 6)"
-          :y="VIEW_H - 4"
-          :text-anchor="i === 1 ? 'start' : i === 7 ? 'end' : 'middle'"
-          fill="#71717a"
-          font-size="8"
-          font-family="monospace"
-        >
-          {{ i === 7 ? 'now' : `-${30 - (i - 1) * 5}s` }}
-        </text>
-
-        <!-- Anchor cursor (differential — alt+click) -->
-        <line
-          v-if="anchorX !== null"
-          :x1="anchorX"
-          :x2="anchorX"
-          :y1="PAD_T"
-          :y2="VIEW_H - PAD_B"
-          stroke="#22d3ee"
-          stroke-width="1"
-          stroke-dasharray="3,2"
-          opacity="0.85"
-        />
-
-        <!-- Scrub playhead -->
-        <line
-          v-if="playheadX !== null"
-          :x1="playheadX"
-          :x2="playheadX"
-          :y1="PAD_T"
-          :y2="VIEW_H - PAD_B"
-          stroke="#fafafa"
-          stroke-width="1"
-          opacity="0.75"
-        />
-      </svg>
+      />
 
       <!-- Current-value pills (default) or Δ-mode pills (anchor set) -->
       <div
@@ -478,3 +460,13 @@ function onPointerEnd(e: PointerEvent): void {
     </div>
   </section>
 </template>
+
+<style scoped>
+/* uPlot defaults to a light theme; tone it for our dark backdrop. */
+.trace-plot :deep(.u-axis) {
+  color: #71717a;
+}
+.trace-plot :deep(.u-legend) {
+  display: none;
+}
+</style>

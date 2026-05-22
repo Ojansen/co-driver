@@ -17,6 +17,7 @@
         "drizzle-orm": "^0.45.2",
         "nuxt": "^4.4.2",
         "tailwindcss": "^4.2.1",
+        "uplot": "^1.6.32",
       },
       "devDependencies": {
         "@nuxt/eslint": "^1.15.2",
@@ -2039,6 +2040,8 @@
     "unwasm": ["unwasm@0.5.3", "", { "dependencies": { "exsolve": "1.0.8", "knitwork": "1.3.0", "magic-string": "0.30.21", "mlly": "1.8.1", "pathe": "2.0.3", "pkg-types": "2.3.0" } }, "sha512-keBgTSfp3r6+s9ZcSma+0chwxQdmLbB5+dAD9vjtB21UTMYuKAxHXCU1K2CbCtnP09EaWeRvACnXk0EJtUx+hw=="],
 
     "update-browserslist-db": ["update-browserslist-db@1.2.3", "", { "dependencies": { "escalade": "3.2.0", "picocolors": "1.1.1" }, "peerDependencies": { "browserslist": "4.28.1" }, "bin": { "update-browserslist-db": "cli.js" } }, "sha512-Js0m9cx+qOgDxo0eMiFGEueWztz+d4+M3rGlmKPT+T4IS/jP4ylw3Nwpu6cpTTP8R1MAC1kF4VbdLt3ARf209w=="],
+
+    "uplot": ["uplot@1.6.32", "", {}, "sha512-KIMVnG68zvu5XXUbC4LQEPnhwOxBuLyW1AHtpm6IKTXImkbLgkMy+jabjLgSLMasNuGGzQm/ep3tOkyTxpiQIw=="],
 
     "uqr": ["uqr@0.1.2", "", {}, "sha512-MJu7ypHq6QasgF5YRTjqscSzQp/W11zoUk6kvmlH+fmWEs63Y0Eib13hYFwAzagRJcVY8WVnlV+eBDUGMJ5IbA=="],
 

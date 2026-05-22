@@ -30,7 +30,8 @@
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
     "nuxt": "^4.4.2",
-    "tailwindcss": "^4.2.1"
+    "tailwindcss": "^4.2.1",
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@nuxt/eslint": "^1.15.2",
