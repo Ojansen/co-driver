@@ -1,15 +1,91 @@
 <script setup lang="ts">
 const { telemetry, connected, forzaConnected, hasReceivedFrame } = useTelemetry()
-const { recording } = useRecording()
+const { recording, stopRecording } = useRecording()
 
 const quickRecordOpen = ref(false)
 
-const showQuickRecord = computed(() => recording.value.state !== 'recording')
+const isRecording = computed(() => recording.value.state === 'recording')
+const showQuickRecord = computed(() => !isRecording.value)
+const lapsCompleted = computed(() =>
+  recording.value.state === 'recording' ? recording.value.lapsCompleted : 0
+)
+
+// Recording duration — once-per-second tick, only while recording. Keeps
+// the banner timer alive even when telemetry frames don't arrive (e.g.
+// between events).
+const recStartedAt = ref<number | null>(null)
+const nowMs = ref(Date.now())
+let tick: ReturnType<typeof setInterval> | null = null
+
+watch(isRecording, (rec) => {
+  if (rec) {
+    recStartedAt.value = Date.now()
+    nowMs.value = Date.now()
+    tick ??= setInterval(() => {
+      nowMs.value = Date.now()
+    }, 1000)
+  } else {
+    recStartedAt.value = null
+    if (tick) {
+      clearInterval(tick)
+      tick = null
+    }
+  }
+}, { immediate: true })
+onBeforeUnmount(() => {
+  if (tick) clearInterval(tick)
+})
+
+const recDuration = computed<string>(() => {
+  const start = recStartedAt.value
+  if (!start) return '0:00'
+  const s = Math.max(0, Math.floor((nowMs.value - start) / 1000))
+  const mm = Math.floor(s / 60)
+  const ss = (s % 60).toString().padStart(2, '0')
+  return `${mm}:${ss}`
+})
+
+// Update the tab title so it's obvious even when this tab isn't focused.
+useHead({
+  title: () => isRecording.value ? `● REC ${recDuration.value} · forza-data` : 'forza-data'
+})
 </script>
 
 <template>
   <div class="min-h-screen bg-zinc-950 text-zinc-100">
-    <header class="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950/85 backdrop-blur">
+    <!-- Recording banner: hard to miss while driving. Lives above the
+         normal header so it can't scroll out or get visually buried. -->
+    <div
+      v-if="isRecording"
+      class="sticky top-0 z-30 border-b border-red-500/50 bg-gradient-to-b from-red-500/15 to-red-500/5 backdrop-blur"
+    >
+      <div class="pointer-events-none absolute inset-x-0 top-0 h-px animate-pulse bg-red-400/80" />
+      <div class="container mx-auto flex max-w-6xl items-center justify-between px-6 py-2 font-mono">
+        <div class="flex items-center gap-3 text-red-200">
+          <span class="relative inline-flex items-center justify-center">
+            <span class="absolute inline-block h-3 w-3 animate-ping rounded-full bg-red-400/60" />
+            <span class="inline-block h-2.5 w-2.5 rounded-full bg-red-400" />
+          </span>
+          <span class="text-xs uppercase tracking-[0.3em]">Recording</span>
+          <span class="tabular-nums text-sm text-red-100">{{ recDuration }}</span>
+          <span class="text-[10px] uppercase tracking-[0.2em] text-red-300/80">
+            {{ lapsCompleted }} lap{{ lapsCompleted === 1 ? '' : 's' }}
+          </span>
+        </div>
+        <button
+          type="button"
+          class="rounded-sm border border-red-500/60 bg-red-500/15 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-red-100 transition-colors hover:bg-red-500/30"
+          @click="stopRecording"
+        >
+          Stop recording
+        </button>
+      </div>
+    </div>
+
+    <header
+      class="sticky z-20 border-b border-zinc-800 bg-zinc-950/85 backdrop-blur"
+      :class="isRecording ? 'top-[44px]' : 'top-0'"
+    >
       <div class="container mx-auto flex max-w-6xl items-center justify-between px-6 py-3 font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-400">
         <div class="flex items-center gap-6">
           <NuxtLink
@@ -73,7 +149,6 @@ const showQuickRecord = computed(() => recording.value.state !== 'recording')
             <span class="mr-1.5 inline-block h-1.5 w-1.5 align-middle rounded-full bg-green-400" />
             Quick record
           </button>
-          <RecBadge with-stop-button />
           <span class="flex items-center gap-2">
             <span
               class="inline-block h-2 w-2 rounded-full"
