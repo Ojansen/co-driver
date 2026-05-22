@@ -293,22 +293,13 @@ onBeforeUnmount(() => {
   plot = null
 })
 
-// --- Update pump ---------------------------------------------------------
-// Dirty-flag + 33 ms interval so a steady-state push+shift (which leaves
-// length unchanged at full buffer) still updates via the latest-sample
-// timestamp signal.
-let pathsDirty = true
-function flush(): void {
-  if (!plot || !pathsDirty) return
-  pathsDirty = false
-  plot.setData(buildData())
-}
-
+// Latest-sample timestamp is the right reactive signal in both filling and
+// steady-state phases of the ring buffer (length is a no-op at full).
 watch(() => {
   const h = props.history
   return h.length > 0 ? h[h.length - 1]!.t : -1
 }, () => {
-  pathsDirty = true
+  plot?.setData(buildData())
 })
 watch(() => props.lines, () => {
   // Line set changed — rebuild the plot wholesale because series colours,
@@ -322,8 +313,6 @@ watch(() => props.lines, () => {
 watch([() => props.scrubIndex, () => props.bands, anchorT], () => {
   plot?.redraw(false)
 }, { deep: true })
-
-useIntervalFn(flush, 33)
 
 // --- Scrub / anchor interaction ------------------------------------------
 let dragging = false

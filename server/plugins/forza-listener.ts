@@ -7,11 +7,6 @@ import { forzaBus, getForzaStatus, setForzaStatus, bumpForzaLastPacket } from '.
 const STALE_MS = 1000
 const TICK_MS = 500
 
-// Debug frames carry packet length + a few tail bytes for the dev panel —
-// at 60 Hz they're pure noise and force a reactive update on every client.
-// Throttle so the panel updates ~5x/s.
-const DEBUG_THROTTLE_MS = 200
-
 // ECONNRESET on the WebSocket upgrade socket bubbles up as an
 // unhandledRejection when a browser tab is closed abruptly. It's harmless —
 // the close handler detaches the bus listener regardless. Filter it so
@@ -36,7 +31,6 @@ export default defineNitroPlugin(() => {
   const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true })
   let warnedShort = false
   let firstPacketLogged = false
-  let lastDebugAt = 0
 
   sock.on('message', (buf, rinfo) => {
     const now = Date.now()
@@ -50,13 +44,10 @@ export default defineNitroPlugin(() => {
       bumpForzaLastPacket(now)
     }
 
-    if (now - lastDebugAt >= DEBUG_THROTTLE_MS) {
-      lastDebugAt = now
-      forzaBus.emit('debug', {
-        length: buf.length,
-        tailHex: buf.subarray(Math.max(0, buf.length - 8)).toString('hex')
-      })
-    }
+    forzaBus.emit('debug', {
+      length: buf.length,
+      tailHex: buf.subarray(Math.max(0, buf.length - 8)).toString('hex')
+    })
 
     const t = decodeCarDash(buf)
     if (!t) {

@@ -33,21 +33,10 @@ const dvrSeconds = computed<number | null>(() => {
   return Math.max(0, (last.t - at.t) / 1000)
 })
 
-// Diagnostic overlays: trail-braking bands and motor-axis auto-scale. Both
-// walk the entire history buffer; computed-per-frame at 60 Hz × ~1800 samples
-// is what makes /live degrade as the buffer fills. The eye can't track them
-// faster than a few Hz anyway — throttle to 250 ms updates while still letting
-// every captured frame reach the recorder.
-const motorLines = shallowRef(motorTraceLines({ maxTorqueNm: 0, maxPowerKw: 0 }))
-const trailBrakingBandsLive = shallowRef<Array<{ startIdx: number, endIdx: number, color?: string }>>([])
-
-const recomputeOverlays = () => {
+// Motor strip's axis auto-scale — running max of torque/power across the
+// visible 30 s. O(n) per recompute, n ≤ 1800; cheap.
+const motorLines = computed(() => {
   const h = history.value
-  if (h.length < 2) {
-    trailBrakingBandsLive.value = []
-    motorLines.value = motorTraceLines({ maxTorqueNm: 0, maxPowerKw: 0 })
-    return
-  }
   let mTq = 0
   let mPw = 0
   for (let i = 0; i < h.length; i++) {
@@ -55,19 +44,22 @@ const recomputeOverlays = () => {
     if (s.torqueNm > mTq) mTq = s.torqueNm
     if (s.powerKw > mPw) mPw = s.powerKw
   }
-  motorLines.value = motorTraceLines({ maxTorqueNm: mTq, maxPowerKw: mPw })
+  return motorTraceLines({ maxTorqueNm: mTq, maxPowerKw: mPw })
+})
 
-  // Adapt TraceSample → DetectorFrame inline rather than via h.map (which
-  // would allocate ~1800 objects per call).
+// Trail-braking bands: shade the brake-trace where the driver was braking
+// AND turning AND the brake was higher recently in the window. See
+// app/utils/trail-braking.ts and /tune/brakes for the why.
+const trailBrakingBandsLive = computed(() => {
+  const h = history.value
+  if (h.length < 2) return []
   const detectorFrames = new Array<{ timestampMs: number, brake: number, steer: number }>(h.length)
   for (let i = 0; i < h.length; i++) {
     const s = h[i]!
     detectorFrames[i] = { timestampMs: s.t, brake: s.brake, steer: s.steer }
   }
-  trailBrakingBandsLive.value = trailBrakingBands(detectTrailBraking(detectorFrames))
-}
-
-useIntervalFn(recomputeOverlays, 250, { immediate: true })
+  return trailBrakingBands(detectTrailBraking(detectorFrames))
+})
 </script>
 
 <template>
