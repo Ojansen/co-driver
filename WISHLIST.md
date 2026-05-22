@@ -6,12 +6,18 @@ personal tuning instrument; **measurement-not-prescription**; player-centric
 language; build and tune as separate layers; the loop is tune-and-measure
 with `/tune/*` and `/upgrade/*` as the only prescriptive surfaces.
 
-Last refreshed 2026-05-22 (post-Compare).
+Last refreshed 2026-05-22 (post-`/tune` "Your data" panels).
 
 ---
 
 ## Recently shipped
 
+- **`/tune/*` "Your data" panels** — commits `9fcaab5` (backend) +
+  `941fef6` (frontend). Each `/tune/[slug]` page now shows a measurement
+  panel above the static copy, populated from the last 5 laps on the
+  most-recently-driven car + build (or `?car=&build=` override). 11
+  bespoke per-slug bindings; drivetrain-aware for differential /
+  center-diff. Closes phase #6 for the tune side; `/upgrade/*` deferred.
 - **Before/After Compare** — commit `e6a2f05`. Auto-pairs current session
   with the most recent prior on the same `(carId, eventId)`. Renders
   measurement deltas (best lap, trail-brake ratio, peak power) and a
@@ -60,12 +66,16 @@ The build/tune artifact track now heads toward a single headline surface:
 5. ~~Before/After Compare~~ — ✅ shipped (`e6a2f05`). Auto-pair on
    `(carId, eventId)`, measurement deltas + setup diff. New measurements
    get added when this surface reveals a gap, not speculatively.
-6. **Telemetry-grounded `/tune/*` and `/upgrade/*` pages — HEADLINE, next up.**
-   "Your data" panel alongside the generic advice on each reference page —
-   front-vs-rear slip averages from the last 5 laps next to "stiffen rear
-   ARB," PWR from the actual car next to the engine-swap decision rule, etc.
-   Reuses `diffSetup` to highlight which tune fields the current car/build
-   already sets vs. the reference recommendation.
+6. ~~Telemetry-grounded `/tune/*` pages~~ — ✅ shipped (`9fcaab5` +
+   `941fef6`). 11 per-slug bindings; drivetrain-aware. The "diff vs
+   reference recommendation" subhint was deliberately dropped — pure
+   measurements only, per the philosophy lock.
+7. **Telemetry-grounded `/upgrade/*` pages — next up.** Same pattern as
+   #6, applied to the upgrade-side reference pages — PWR next to the
+   engine-swap decision rule, tire-compound slip stats next to the
+   tire-upgrade options, top speed vs lateral G p95 next to the aero-body
+   tradeoff. 10 slugs to wire up; can reuse `useTuneData` and
+   `summarizeFrames` directly.
 
 ---
 
