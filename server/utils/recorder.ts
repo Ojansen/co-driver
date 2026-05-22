@@ -5,13 +5,14 @@
  * Lives in the server so recording survives browser refresh and the UDP
  * stream + DB are both adjacent.
  *
- * Race-state gating: frames where `isRaceOn === false` are never buffered.
- * That filters loading screens, countdowns, post-finish UI, and any in-game
- * menu pause. For point-to-point event types (touge / rally / drag /
- * cross-country / freeroam) the buffer is additionally CLEARED when isRaceOn
- * goes false — so any frames captured before the actual event starts
- * (driving in freeroam to the event entrance, sitting in the lobby) are
- * tossed the moment the game shows a loading screen.
+ * Live-data gating: frames where `isRaceOn === false` are never buffered.
+ * The bit reads "the game's feeding live data right now", not "an event is
+ * running" — so this filters loading screens, countdowns, the pause menu
+ * and the post-finish UI uniformly. For point-to-point event types (touge /
+ * rally / drag / cross-country / freeroam) the buffer is additionally
+ * CLEARED on `isRaceOn=false` *only while no real run has started yet* — so
+ * driving-to-the-event-entrance frames get dropped at the loading screen,
+ * but a completed run survives the finish-line UI flipping the bit off.
  *
  * Lap-flushing rule: the first LapNumber transition after start() is a
  * mid-lap join (the lap started before recording began) — discard. Every
@@ -185,15 +186,25 @@ class Recorder {
     const ctx = this.ctx
     if (!ctx) return
 
-    // Skip frames while the race isn't on — these are loading screens,
-    // countdowns, menus, post-finish UI, etc. They'd otherwise pollute the
-    // buffer with zero-data frames and inflate the elapsed time.
+    // Skip buffering while the game isn't feeding live data — loading
+    // screens, countdowns, the in-game pause menu, the post-finish UI. The
+    // `isRaceOn` bit reads "data is live", not "an event is happening" (see
+    // memory: project_is_race_on_semantic), so we can't infer "the race is
+    // over, dump the buffer" just from it going false.
     if (!t.isRaceOn) {
-      // For point-to-point events the buffer == the run, and any frames
-      // queued before the race actually starts are pre-event garbage
-      // (driving from freeroam to the event, sitting in the lobby).
-      // Clear them so the moment the race goes on we start fresh.
-      if (POINT_TO_POINT_TYPES.has(ctx.eventType) && ctx.buffer.length > 0) {
+      // Point-to-point: the buffer == the run, and frames queued before the
+      // actual run starts (driving to the event entrance, sitting in the
+      // lobby) are pre-event garbage worth dropping. But the SAME signal
+      // fires at the *end* of the run when the finish UI appears — clearing
+      // there would discard the whole captured run. Only clear if we
+      // haven't yet accumulated meaningful run data.
+      const RUN_STARTED_MIN_FRAMES = 120 // ~2 s at 60 Hz
+      const runStarted = ctx.lapInProgressFromStart || ctx.buffer.length >= RUN_STARTED_MIN_FRAMES
+      if (
+        POINT_TO_POINT_TYPES.has(ctx.eventType)
+        && ctx.buffer.length > 0
+        && !runStarted
+      ) {
         ctx.buffer = []
         ctx.lapInProgressFromStart = false
       }
