@@ -88,7 +88,14 @@ function rebuildPaths(): void {
   linePaths.value = buildLinePaths()
 }
 
-watch(() => props.history.length, () => {
+// Watching length alone breaks once the ring buffer is full: a push+shift
+// in the same frame leaves length unchanged so Vue batches it to a no-op.
+// Latest-sample timestamp is monotonically increasing per push and never
+// settles, so it's the right signal in both the filling and steady states.
+watch(() => {
+  const h = props.history
+  return h.length > 0 ? h[h.length - 1]!.t : -1
+}, () => {
   pathsDirty = true
 })
 watch(() => props.lines, () => {
