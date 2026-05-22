@@ -301,9 +301,18 @@ watch(() => {
 }, () => {
   plot?.setData(buildData())
 })
-watch(() => props.lines, () => {
-  // Line set changed — rebuild the plot wholesale because series colours,
-  // count and labels are baked into uPlot options at construction time.
+// Watch a signature, not the array identity — a parent passing a freshly-
+// allocated lines array on every push (motor strip's running-max output)
+// would otherwise destroy+rebuild the uPlot instance 60x/s, leaking DOM
+// nodes and event listeners between GC sweeps.
+function linesSig(lines: LineDef[]): string {
+  let s = ''
+  for (const l of lines) s += l.key + ':' + l.color + ':' + l.label + '|'
+  return s
+}
+watch(() => linesSig(props.lines), () => {
+  // Series colours, count and labels are baked into uPlot options at
+  // construction, so a real change in the line set requires a rebuild.
   if (!plot || !plotEl.value) return
   const w = plotEl.value.clientWidth || 1000
   plot.destroy()

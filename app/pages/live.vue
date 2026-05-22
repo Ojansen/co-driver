@@ -34,9 +34,28 @@ const dvrSeconds = computed<number | null>(() => {
 })
 
 // Motor strip's axis auto-scale — running max of torque/power across the
-// visible 30 s. O(n) per recompute, n ≤ 1800; cheap.
-const motorLines = computed(() => {
+// visible 30 s. Identity-stable: emits a new lines array only when the
+// running max actually shifts. Critical because the TraceStrip lines
+// watcher destroys+rebuilds the uPlot instance on identity change, so a
+// per-push churn here leaked DOM nodes and event listeners.
+const motorLines = shallowRef(motorTraceLines({ maxTorqueNm: 0, maxPowerKw: 0 }))
+let lastMaxTq = 0
+let lastMaxPw = 0
+
+// Reusable buffer for the trail-braking detector input — avoids ~1800
+// object allocations per push at full buffer.
+const detectorBuf: Array<{ timestampMs: number, brake: number, steer: number }> = []
+
+const trailBrakingBandsLive = shallowRef<Array<{ startIdx: number, endIdx: number, color?: string }>>([])
+
+watch(() => {
   const h = history.value
+  return h.length > 0 ? h[h.length - 1]!.t : -1
+}, () => {
+  const h = history.value
+
+  // Running max for the motor axis. Epsilon absorbs FP jitter and tiny
+  // shifts that wouldn't visibly change the axis anyway.
   let mTq = 0
   let mPw = 0
   for (let i = 0; i < h.length; i++) {
@@ -44,21 +63,28 @@ const motorLines = computed(() => {
     if (s.torqueNm > mTq) mTq = s.torqueNm
     if (s.powerKw > mPw) mPw = s.powerKw
   }
-  return motorTraceLines({ maxTorqueNm: mTq, maxPowerKw: mPw })
-})
+  if (Math.abs(mTq - lastMaxTq) > 1 || Math.abs(mPw - lastMaxPw) > 1) {
+    lastMaxTq = mTq
+    lastMaxPw = mPw
+    motorLines.value = motorTraceLines({ maxTorqueNm: mTq, maxPowerKw: mPw })
+  }
 
-// Trail-braking bands: shade the brake-trace where the driver was braking
-// AND turning AND the brake was higher recently in the window. See
-// app/utils/trail-braking.ts and /tune/brakes for the why.
-const trailBrakingBandsLive = computed(() => {
-  const h = history.value
-  if (h.length < 2) return []
-  const detectorFrames = new Array<{ timestampMs: number, brake: number, steer: number }>(h.length)
+  // Trail-braking bands. Reuses detectorBuf so we're not allocating 1800
+  // adapter objects every push.
+  if (h.length < 2) {
+    if (trailBrakingBandsLive.value.length > 0) trailBrakingBandsLive.value = []
+    return
+  }
+  while (detectorBuf.length > h.length) detectorBuf.pop()
+  while (detectorBuf.length < h.length) detectorBuf.push({ timestampMs: 0, brake: 0, steer: 0 })
   for (let i = 0; i < h.length; i++) {
     const s = h[i]!
-    detectorFrames[i] = { timestampMs: s.t, brake: s.brake, steer: s.steer }
+    const f = detectorBuf[i]!
+    f.timestampMs = s.t
+    f.brake = s.brake
+    f.steer = s.steer
   }
-  return trailBrakingBands(detectTrailBraking(detectorFrames))
+  trailBrakingBandsLive.value = trailBrakingBands(detectTrailBraking(detectorBuf))
 })
 </script>
 
