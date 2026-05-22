@@ -6,12 +6,19 @@ personal tuning instrument; **measurement-not-prescription**; player-centric
 language; build and tune as separate layers; the loop is tune-and-measure
 with `/tune/*` and `/upgrade/*` as the only prescriptive surfaces.
 
-Last refreshed 2026-05-22 (post-`/upgrade` "Your data" panels).
+Last refreshed 2026-05-22 (post-per-sector deltas).
 
 ---
 
 ## Recently shipped
 
+- **Per-sector times in the lap table** — commit `b262c90`. Each lap
+  reports three sector times (equal-distance splits over
+  `lap.distance`); the session-best sector per column gets the
+  standard pro-tool green highlight. Gated by `SECTOR_LIKE_TYPES` so
+  drag/freeroam stay off. Unlocks best-theoretical-lap and apex-speed
+  as cheap follow-ons (both still on the wishlist, deliberately
+  unbundled).
 - **`/upgrade/*` "Your data" panels (5 slugs)** — commit `674afb9`.
   Bindings for the upgrade categories where telemetry genuinely
   informs the decision: `tires`, `drivetrain-conversion`,
@@ -109,10 +116,10 @@ philosophy grounds. Keep them here so they don't get re-proposed.
 
 ## Carried over from DESIGN.md §5
 
-- **Per-sector deltas** — equal-distance splits over `lap.distance` (cheap)
-  or user-marked sector points on the map (precise). Sector boundaries
-  unlock apex-speed and best-theoretical-lap. Originally v4 slice 3; still
-  unbuilt and still attractive.
+- ~~Per-sector deltas~~ — ✅ shipped (`b262c90`). Equal-distance split
+  version landed in the lap table. User-marked sector points on the
+  map remain unbuilt and would supersede the equal-distance fallback
+  if precision becomes important.
 - **Suspension-travel markers on the map** — frames where
   `normalizedTravel > 0.95` rendered as map dots, paired with speed/steer at
   that frame. *Renamed from "Bottoming events" — observational, not
