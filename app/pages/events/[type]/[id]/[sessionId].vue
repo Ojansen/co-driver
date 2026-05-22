@@ -104,6 +104,62 @@ function tbPctFor(lapNumber: number): string {
   return Math.round(entry.ratio * 100) + '%'
 }
 
+// --- Per-sector times (lap-based events only) ----------------------------
+
+interface SectorsLap {
+  lapNumber: number
+  sectorTimes: number[] | null
+}
+interface SectorsResponse {
+  sessionId: number
+  sectorCount: number
+  laps: SectorsLap[]
+}
+
+const hasSectors = hasTrailBraking // same event-type gate
+const { data: sectorsData } = hasSectors
+  ? await useFetch<SectorsResponse>(`/api/sessions/${sessionId}/sectors`)
+  : { data: ref<SectorsResponse | null>(null) }
+
+const sectorCount = computed<number>(() => sectorsData.value?.sectorCount ?? 0)
+
+const sectorTimesByLap = computed<Map<number, number[]>>(() => {
+  const m = new Map<number, number[]>()
+  for (const l of sectorsData.value?.laps ?? []) {
+    if (l.sectorTimes) m.set(l.lapNumber, l.sectorTimes)
+  }
+  return m
+})
+
+/** Min sector-time per column across all laps that produced sectors. */
+const bestSectorTimes = computed<(number | null)[]>(() => {
+  const n = sectorCount.value
+  if (n === 0) return []
+  const best: (number | null)[] = new Array(n).fill(null)
+  for (const times of sectorTimesByLap.value.values()) {
+    for (let i = 0; i < n; i++) {
+      const t = times[i]
+      if (t === undefined) continue
+      if (best[i] === null || t < best[i]!) best[i] = t
+    }
+  }
+  return best
+})
+
+function sectorTimeFor(lapNumber: number, idx: number): string {
+  const times = sectorTimesByLap.value.get(lapNumber)
+  const t = times?.[idx]
+  if (t === undefined) return '—'
+  return (t / 1000).toFixed(3)
+}
+
+function isBestSector(lapNumber: number, idx: number): boolean {
+  const times = sectorTimesByLap.value.get(lapNumber)
+  const t = times?.[idx]
+  if (t === undefined) return false
+  return bestSectorTimes.value[idx] === t
+}
+
 // --- Build + tune attachment ---------------------------------------------
 
 const attaching = ref(false)
@@ -462,6 +518,14 @@ async function confirmDelete() {
               Time
             </th>
             <th
+              v-for="i in sectorCount"
+              :key="`sh-${i}`"
+              class="px-3 py-2 text-left font-normal"
+              :title="`Sector ${i} time (equal-distance splits)`"
+            >
+              S{{ i }}
+            </th>
+            <th
               v-if="hasTrailBraking"
               class="px-3 py-2 text-left font-normal"
               title="Percentage of braking time where the driver was also turning the wheel"
@@ -489,6 +553,14 @@ async function confirmDelete() {
             </td>
             <td class="px-3 py-2 text-zinc-100 tabular-nums">
               {{ formatLap(lap.timeMs) }}
+            </td>
+            <td
+              v-for="i in sectorCount"
+              :key="`sd-${lap.id}-${i}`"
+              class="px-3 py-2 tabular-nums"
+              :class="isBestSector(lap.lapNumber, i - 1) ? 'text-green-300' : 'text-zinc-300'"
+            >
+              {{ sectorTimeFor(lap.lapNumber, i - 1) }}
             </td>
             <td
               v-if="hasTrailBraking"
