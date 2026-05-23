@@ -24,34 +24,17 @@ Self-hosted telemetry and tuning tool for **Forza Horizon 6**. Listens for the g
 
 ## Install
 
-### Option A — Docker Hub (recommended for users)
-
-Pull the prebuilt image. No clone, no build toolchain.
-
-```bash
-docker run -d --name co-driver \
-  -p 3000:3000 \
-  -p 5300:5300/udp \
-  -v co-driver:/app/data \
-  --restart unless-stopped \
-  <dockerhub-user>/co-driver:latest
-```
-
-Open <http://localhost:3000>. You'll see "WAITING FOR TELEMETRY" until Forza starts sending. Migrations run automatically on first start; session/lap data lives in the named volume (`co-driver`) and survives container rebuilds.
-
-Images are published for `linux/amd64` and `linux/arm64`.
-
-### Option B — Build it yourself
-
 ```bash
 git clone https://github.com/Ojansen/co-driver.git
 cd co-driver
 docker compose up -d --build
 ```
 
+Open <http://localhost:3000>. You'll see "WAITING FOR TELEMETRY" until Forza starts sending. Migrations run automatically on first start; session/lap data lives in the named volume (`co-driver`) and survives container rebuilds.
+
 The Dockerfile is multi-stage: it installs and builds inside the container, so no host toolchain beyond Docker is required.
 
-### Option C — Dev mode (contributors)
+### Dev mode (contributors)
 
 ```bash
 git clone https://github.com/Ojansen/co-driver.git
@@ -73,9 +56,6 @@ In the game:
 | Data Out | **On** |
 | Data Out IP | LAN IP of the machine running co-driver (or `127.0.0.1` if same PC) |
 | Data Out Port | `5300` (or whatever you set `FORZA_PORT` to) |
-| Data Out Packet Format | **Car Dash** |
-
-The "Sled" format is a subset — it lacks tire temps, inputs, and lap data. Use **Car Dash**.
 
 ### Finding your server's LAN IP
 
@@ -125,25 +105,6 @@ A starter `.env.example` is included; copy to `.env` to override defaults outsid
 | `bun test:e2e` | Playwright E2E |
 
 Package manager is **bun**. Do not use npm, yarn, or pnpm.
-
-## Publishing a new image to Docker Hub
-
-Manual flow — no CI yet.
-
-```bash
-# One-time setup
-docker login                                  # use a Docker Hub access token
-docker buildx create --name forza-builder --use
-docker buildx inspect --bootstrap
-
-# Each release
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  -t <dockerhub-user>/co-driver:latest \
-  --push .
-```
-
-The build runs inside the container per architecture, so the libsql native bindings match each target. Expect 3–6 minutes on first run (longer for the arm64 leg under QEMU emulation).
 
 ## Status
 
