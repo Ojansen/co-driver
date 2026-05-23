@@ -11,7 +11,8 @@ import type { Telemetry } from '../../server/utils/decode'
 export interface TrackPoint {
   /** world X — horizontal axis on the top-down map */
   x: number
-  /** world Z — vertical axis on the top-down map (south on screen) */
+  /** world Z — vertical axis on the top-down map (north on screen, after
+   *  the world→SVG sign flip in `svgYFromWorldZ`) */
   z: number
   /** world Y — height, used by the elevation profile strip */
   y: number
@@ -111,4 +112,17 @@ export function boundsFromTraces(traces: { points: TrackPoint[] }[]): TrackBound
   const all: TrackPoint[] = []
   for (const t of traces) for (const p of t.points) all.push(p)
   return boundsFromPoints(all)
+}
+
+/** Convert world Z (Forza ground-plane axis, Y = up) to SVG y. SVG y grows
+ *  downward; without negation, a counter-clockwise world path renders
+ *  clockwise. See Issue #4. */
+export function svgYFromWorldZ(z: number): number {
+  return -z
+}
+
+/** Inverse of `svgYFromWorldZ` — used when a screen-space click is
+ *  reverse-mapped back to a world position (e.g. click-to-seek). */
+export function worldZFromSvgY(y: number): number {
+  return -y
 }

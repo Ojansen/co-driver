@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   pointsFromFrames,
   boundsFromPoints,
-  boundsFromTraces
+  boundsFromTraces,
+  svgYFromWorldZ,
+  worldZFromSvgY
 } from '../../app/utils/track-map'
 import type { Telemetry } from '../../server/utils/decode'
 
@@ -118,5 +120,38 @@ describe('boundsFromTraces', () => {
       minX: 0, maxX: 0, minZ: 0, maxZ: 0,
       minY: 0, maxY: 0, minDistance: 0, maxDistance: 0
     })
+  })
+})
+
+describe('svgYFromWorldZ — Issue #4 regression', () => {
+  it('negates world Z so +Z points up on screen', () => {
+    expect(svgYFromWorldZ(10)).toBe(-10)
+    expect(svgYFromWorldZ(-7)).toBe(7)
+  })
+
+  it('round-trips with worldZFromSvgY', () => {
+    for (const z of [0, 12.5, -3, 1000, -1000]) {
+      expect(worldZFromSvgY(svgYFromWorldZ(z))).toBe(z)
+    }
+  })
+
+  it('preserves rotation direction — a CCW world arc renders CCW visually', () => {
+    // Three world points that form a left turn (CCW in the X-Z plane,
+    // viewed from above): drive +Z, then curve toward -X. The 2D cross
+    // product (b−a) × (c−b) is positive in world space → CCW.
+    const a = { x: 0, z: 0 }
+    const b = { x: 0, z: 10 }
+    const c = { x: -5, z: 15 }
+    const worldCross = (b.x - a.x) * (c.z - b.z) - (b.z - a.z) * (c.x - b.x)
+    expect(worldCross).toBeGreaterThan(0)
+
+    // Same points through the SVG mapping. SVG y grows downward, so a CCW
+    // visual rotation has a NEGATIVE 2D cross in SVG coords. Before the
+    // fix (no negation) this came out positive — that was Issue #4.
+    const A = { x: a.x, y: svgYFromWorldZ(a.z) }
+    const B = { x: b.x, y: svgYFromWorldZ(b.z) }
+    const C = { x: c.x, y: svgYFromWorldZ(c.z) }
+    const svgCross = (B.x - A.x) * (C.y - B.y) - (B.y - A.y) * (C.x - B.x)
+    expect(svgCross).toBeLessThan(0)
   })
 })

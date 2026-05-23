@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {
   boundsFromTraces,
+  svgYFromWorldZ,
+  worldZFromSvgY,
   type TrackBounds,
   type TrackPoint
 } from '~/utils/track-map'
@@ -53,8 +55,9 @@ function onMapClick(e: MouseEvent) {
   pt.x = e.clientX
   pt.y = e.clientY
   const local = pt.matrixTransform(ctm.inverse())
-  // SVG y-axis maps to world Z in our viewBox (see line elements: y1=seg.z1).
-  emit('seekToPosition', { x: local.x, z: local.y })
+  // Reverse-map SVG y back to world Z (see `svgYFromWorldZ` for the forward
+  // direction used by every line/circle in the top-down map below).
+  emit('seekToPosition', { x: local.x, z: worldZFromSvgY(local.y) })
 }
 
 type ColorMode = 'speed' | 'throttle' | 'brake' | 'drivingLine'
@@ -99,7 +102,10 @@ const mapViewBox = computed(() => {
   const w = Math.max(b.maxX - b.minX, 1)
   const h = Math.max(b.maxZ - b.minZ, 1)
   const pad = Math.max(w, h) * 0.05
-  return `${b.minX - pad} ${b.minZ - pad} ${w + pad * 2} ${h + pad * 2}`
+  // World Z range [minZ, maxZ] maps to SVG y range [-maxZ, -minZ] via
+  // `svgYFromWorldZ`. The viewBox origin is therefore `-maxZ`, with the
+  // same positive height.
+  return `${b.minX - pad} ${svgYFromWorldZ(b.maxZ) - pad} ${w + pad * 2} ${h + pad * 2}`
 })
 
 // Stroke widths need to scale with world units (the viewBox), not pixels.
@@ -310,9 +316,9 @@ function modeDisabled(m: ColorMode): boolean {
             v-for="(seg, si) in segmentsFor(t.points)"
             :key="`bks-${ti}-${si}`"
             :x1="seg.x1"
-            :y1="seg.z1"
+            :y1="svgYFromWorldZ(seg.z1)"
             :x2="seg.x2"
-            :y2="seg.z2"
+            :y2="svgYFromWorldZ(seg.z2)"
             stroke="#3f3f46"
             :stroke-width="strokeBase * 1.2"
             stroke-linecap="round"
@@ -325,9 +331,9 @@ function modeDisabled(m: ColorMode): boolean {
           v-for="(seg, i) in bestSegments"
           :key="`bbk-${i}`"
           :x1="seg.x1"
-          :y1="seg.z1"
+          :y1="svgYFromWorldZ(seg.z1)"
           :x2="seg.x2"
-          :y2="seg.z2"
+          :y2="svgYFromWorldZ(seg.z2)"
           stroke="#27272a"
           :stroke-width="strokeBase * 3"
           stroke-linecap="round"
@@ -339,9 +345,9 @@ function modeDisabled(m: ColorMode): boolean {
           v-for="(seg, i) in bestSegments"
           :key="`best-${i}`"
           :x1="seg.x1"
-          :y1="seg.z1"
+          :y1="svgYFromWorldZ(seg.z1)"
           :x2="seg.x2"
-          :y2="seg.z2"
+          :y2="svgYFromWorldZ(seg.z2)"
           :stroke="seg.color"
           :stroke-width="strokeBase * 1.6"
           stroke-linecap="round"
@@ -352,7 +358,7 @@ function modeDisabled(m: ColorMode): boolean {
         <circle
           v-if="bestTrace && bestTrace.points.length > 0"
           :cx="bestTrace.points[0]!.x"
-          :cy="bestTrace.points[0]!.z"
+          :cy="svgYFromWorldZ(bestTrace.points[0]!.z)"
           :r="strokeBase * 3"
           fill="#22c55e"
           stroke="#0f0f12"
@@ -363,7 +369,7 @@ function modeDisabled(m: ColorMode): boolean {
         <circle
           v-if="cursor"
           :cx="cursor.x"
-          :cy="cursor.z"
+          :cy="svgYFromWorldZ(cursor.z)"
           :r="strokeBase * 3.5"
           fill="#fafafa"
           stroke="#0f0f12"
