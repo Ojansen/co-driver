@@ -63,8 +63,10 @@ function resetCurve() {
       Gear-tuning workbench
     </h1>
     <p class="mb-8 max-w-2xl font-mono text-sm leading-relaxed text-zinc-400">
-      Drive a full-throttle pull through the rev range. The curve builds up as
-      you go. Use peak power for shift point, the shaded band as your
+      Pick 3rd or 4th gear, roll down to about 2000 RPM, then hold full
+      throttle to redline. The high gear keeps tires hooked so the curve
+      fills cleanly from the bottom — 1st-gear launches skip the low end on
+      wheelspin. Use peak power for shift point, the shaded band as your
       "stay-in-here" zone for gear spacing.
     </p>
 
