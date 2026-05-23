@@ -2,6 +2,8 @@
 import { suspColor, tempColor, slipColor, combColor, SUSPENSION_BOTTOMING } from '~/utils/tuning'
 import { useSustained } from '~/composables/useSustained'
 
+const { format, unitLabel } = useUnits()
+
 const props = withDefaults(defineProps<{
   label: string
   side: 'left' | 'right'
@@ -153,7 +155,7 @@ const trailPath = computed(() => {
           />
         </NuxtLink>
         <span class="tabular-nums">
-          <span class="text-zinc-500">{{ (suspensionMeters * 1000).toFixed(0) }}<span class="text-[11px]">mm</span></span>
+          <span class="text-zinc-500">{{ format.distanceShort(suspensionMeters) }}</span>
           <span class="ml-2 text-base text-zinc-200">{{ suspension.toFixed(2) }}</span>
         </span>
       </div>
@@ -313,7 +315,7 @@ const trailPath = computed(() => {
         class="inline-block h-3.5 w-3.5 rounded-sm"
         :style="{ background: temp }"
       />
-      <span class="text-base tabular-nums">{{ tempC.toFixed(0) }}<span class="text-zinc-500 text-xs">°C</span></span>
+      <span class="text-base tabular-nums">{{ unitLabel.temperature === '°F' ? (tempC * 9 / 5 + 32).toFixed(0) : tempC.toFixed(0) }}<span class="text-zinc-500 text-xs">{{ unitLabel.temperature }}</span></span>
       <NuxtLink
         to="/tune/tire-pressure"
         class="group ml-auto inline-flex items-center gap-1 text-xs uppercase tracking-wider text-zinc-500 transition-colors hover:text-green-300"

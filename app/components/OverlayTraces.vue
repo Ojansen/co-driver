@@ -2,6 +2,8 @@
 import { alignByDistance, type AlignedSeries, type AlignFrame } from '~/utils/align'
 import { formatDelta } from '~/utils/format'
 
+const { format } = useUnits()
+
 const props = defineProps<{
   framesA: AlignFrame[]
   framesB: AlignFrame[]
@@ -117,7 +119,7 @@ const distanceTicks = computed(() => {
   for (let d = step; d < total; d += step) {
     out.push({
       x: (d / total) * VIEW_W,
-      label: d >= 1000 ? (d / 1000).toFixed(d % 1000 === 0 ? 0 : 1) + 'km' : d.toFixed(0) + 'm'
+      label: format.distance(d).replace(/\s+/g, '')
     })
   }
   return out
@@ -371,7 +373,7 @@ const clipBelowId = `overlay-below-${uid}`
           fill="#71717a"
           font-size="9"
           font-family="monospace"
-        >{{ dMax >= 1000 ? (dMax / 1000).toFixed(2) + 'km' : dMax.toFixed(0) + 'm' }}</text>
+        >{{ format.distance(dMax).replace(/\s+/g, '') }}</text>
       </svg>
 
       <div

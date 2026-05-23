@@ -10,6 +10,12 @@
 
 export type FieldKind = 'number' | 'enum' | 'text'
 
+/** Discriminator for fields whose displayed unit follows the user's
+ *  preferences (see app/composables/useUnits.ts). When set, the form/display
+ *  layer reads `unitLabel[unitCategory]` for the suffix and round-trips
+ *  values through `toDisplay`/`fromDisplay` of the same name. */
+export type UnitCategory = 'pressure' | 'springRate' | 'distanceShortIn' | 'downforce'
+
 /**
  * How a field's default value gets pre-filled when the form opens.
  * The form is responsible for resolving these sources; this module just
@@ -30,8 +36,14 @@ export interface SetupField {
   /** Kind of input. */
   kind: FieldKind
   /** Optional units suffix shown next to the field (" HP", " kg",
-   *  " mm", " % front"). */
+   *  " mm", " % front"). Used for fields that don't switch with the user's
+   *  unit preferences. For switchable units (pressure, springs, ride height,
+   *  downforce) set `unitCategory` instead so the form/display layer can
+   *  apply the correct conversion + suffix. */
   unit?: string
+  /** When set, this field's storage unit is Forza-canonical but the
+   *  displayed unit follows useUnits prefs. See `UnitCategory` above. */
+  unitCategory?: UnitCategory
   /** For enum fields: the allowed values in display order. */
   options?: readonly string[]
   /** Auto-populate source if this field can pre-fill from existing data. */
@@ -164,8 +176,21 @@ export const AERO_LABELS: Record<string, string> = {
   both: 'Splitter + wing'
 }
 
-/** Format a field's value for SetupDisplay. Returns '—' for nullish. */
-export function formatFieldValue(field: SetupField, value: unknown): string {
+/** Format a field's value for SetupDisplay. Returns '—' for nullish.
+ *  When the field carries a `unitCategory` and `unitFmt` is supplied, the
+ *  value is converted to the user's preferred display unit and the matching
+ *  suffix is appended. */
+export function formatFieldValue(
+  field: SetupField,
+  value: unknown,
+  unitFmt?: {
+    pressure: (psi: number) => string
+    springRate: (lbPerIn: number) => string
+    /** distanceShort takes meters — see useUnits.format.distanceShort */
+    distanceShort: (meters: number) => string
+    downforce: (lb: number) => string
+  }
+): string {
   if (value === null || value === undefined || value === '') return '—'
 
   if (field.kind === 'enum') {
@@ -182,6 +207,14 @@ export function formatFieldValue(field: SetupField, value: unknown): string {
   if (field.kind === 'number') {
     const n = Number(value)
     if (!Number.isFinite(n)) return '—'
+    if (field.unitCategory && unitFmt) {
+      switch (field.unitCategory) {
+        case 'pressure': return unitFmt.pressure(n)
+        case 'springRate': return unitFmt.springRate(n)
+        case 'distanceShortIn': return unitFmt.distanceShort(n * 0.0254) // in → m
+        case 'downforce': return unitFmt.downforce(n)
+      }
+    }
     const rounded = Number.isInteger(n) ? n.toString() : n.toFixed(1)
     return rounded + (field.unit ?? '')
   }

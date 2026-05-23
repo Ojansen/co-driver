@@ -6,9 +6,14 @@
  * Adding a new slug? Add the slug key to TUNE_DATA_BINDINGS. Adding a new
  * measurement? Add the helper to tune-signals.ts and reference it here via
  * a `read(signals)` selector.
+ *
+ * Bindings receive a `fmt` object (see app/composables/useUnits.ts) so any
+ * value-with-unit string follows the user's unit preferences without the
+ * binding module needing to know what those are.
  */
 
 import type { FrameAggregates } from './tune-signals'
+import type { UnitFormat } from '~/composables/useUnits'
 
 export type Drivetrain = 'fwd' | 'rwd' | 'awd' | null
 
@@ -21,18 +26,17 @@ export interface Row {
 export interface BindingContext {
   signals: FrameAggregates
   drivetrain: Drivetrain
+  fmt: UnitFormat
 }
 
 /** Returns the rows to render, or null when this slug shouldn't render anything for the current context (e.g. center-diff on a RWD car). */
 export type Binding = (ctx: BindingContext) => Row[] | null
 
-// --- formatters ------------------------------------------------------------
+// --- unit-agnostic formatters ----------------------------------------------
 
 const pct = (v: number, decimals = 1): string => `${(v * 100).toFixed(decimals)}%`
 const num = (v: number, decimals = 2): string => v.toFixed(decimals)
-const kmh = (v: number): string => `${Math.round(v)} km/h`
 const radDeg = (v: number): string => `${(v * 180 / Math.PI).toFixed(1)}°`
-const tempC = (v: number): string => `${v.toFixed(1)} °C`
 const rpm = (v: number): string => `${Math.round(v)} rpm`
 
 // --- bindings --------------------------------------------------------------
@@ -61,20 +65,20 @@ export const TUNE_DATA_BINDINGS: Record<string, Binding> = {
     { label: 'Rear travel avg', value: pct(s.suspensionTravel.rearAvg) },
     { label: 'Rumble-strip contact', value: pct(s.rumbleContactPct, 2) }
   ],
-  'alignment': ({ signals: s }) => [
-    { label: 'FL temp avg', value: tempC(s.tireTempC.fl) },
-    { label: 'FR temp avg', value: tempC(s.tireTempC.fr) },
-    { label: 'RL temp avg', value: tempC(s.tireTempC.rl) },
-    { label: 'RR temp avg', value: tempC(s.tireTempC.rr) },
-    { label: 'Front L/R Δ', value: tempC(s.tireTempC.fl - s.tireTempC.fr) },
-    { label: 'Rear L/R Δ', value: tempC(s.tireTempC.rl - s.tireTempC.rr) }
+  'alignment': ({ signals: s, fmt }) => [
+    { label: 'FL temp avg', value: fmt.temp(s.tireTempC.fl) },
+    { label: 'FR temp avg', value: fmt.temp(s.tireTempC.fr) },
+    { label: 'RL temp avg', value: fmt.temp(s.tireTempC.rl) },
+    { label: 'RR temp avg', value: fmt.temp(s.tireTempC.rr) },
+    { label: 'Front L/R Δ', value: fmt.temp(s.tireTempC.fl - s.tireTempC.fr) },
+    { label: 'Rear L/R Δ', value: fmt.temp(s.tireTempC.rl - s.tireTempC.rr) }
   ],
-  'tire-pressure': ({ signals: s }) => [
-    { label: 'FL temp avg', value: tempC(s.tireTempC.fl) },
-    { label: 'FR temp avg', value: tempC(s.tireTempC.fr) },
-    { label: 'RL temp avg', value: tempC(s.tireTempC.rl) },
-    { label: 'RR temp avg', value: tempC(s.tireTempC.rr) },
-    { label: 'All four in 85–100 °C', value: pct(s.tireTempC.allOptimalPct) }
+  'tire-pressure': ({ signals: s, fmt }) => [
+    { label: 'FL temp avg', value: fmt.temp(s.tireTempC.fl) },
+    { label: 'FR temp avg', value: fmt.temp(s.tireTempC.fr) },
+    { label: 'RL temp avg', value: fmt.temp(s.tireTempC.rl) },
+    { label: 'RR temp avg', value: fmt.temp(s.tireTempC.rr) },
+    { label: `All four in ${fmt.temp(85)}–${fmt.temp(100)}`, value: pct(s.tireTempC.allOptimalPct) }
   ],
   'differential': ({ signals: s, drivetrain }) => {
     if (drivetrain === 'fwd') {
@@ -114,10 +118,10 @@ export const TUNE_DATA_BINDINGS: Record<string, Binding> = {
     { label: 'Avg entry brake (first 200 ms)', value: pct(s.brake.avgEntryPressure) },
     { label: 'Braking events', value: String(s.brake.brakingEvents) }
   ],
-  'aero': ({ signals: s }) => [
-    { label: 'Top speed', value: kmh(s.aero.topSpeedKmh) },
-    { label: 'Lateral G p95 above 150 km/h', value: num(Math.abs(s.aero.lateralGP95HighSpeed) / 9.81) + ' g' },
-    { label: 'Frames above 150 km/h', value: String(s.aero.highSpeedFrames) }
+  'aero': ({ signals: s, fmt }) => [
+    { label: 'Top speed', value: fmt.speed(s.aero.topSpeedKmh) },
+    { label: `Lateral G p95 above ${fmt.speed(150)}`, value: num(Math.abs(s.aero.lateralGP95HighSpeed) / 9.81) + ' g' },
+    { label: `Frames above ${fmt.speed(150)}`, value: String(s.aero.highSpeedFrames) }
   ],
   'gearing': ({ signals: s }) => {
     const rows: Row[] = []

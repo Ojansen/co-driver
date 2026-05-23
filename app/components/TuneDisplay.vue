@@ -19,6 +19,14 @@ const emit = defineEmits<{
   edit: []
 }>()
 
+const { format } = useUnits()
+const unitFmt = {
+  pressure: format.pressure,
+  springRate: format.springRate,
+  distanceShort: format.distanceShort,
+  downforce: format.downforce
+}
+
 const sectionGroups = computed(() => tuneFieldsBySection(props.drivetrain))
 
 function filledCount(sectionKey: typeof TUNE_SECTIONS[number]): number {
@@ -74,7 +82,7 @@ function filledCount(sectionKey: typeof TUNE_SECTIONS[number]): number {
               {{ field.label }}
             </dt>
             <dd class="tabular-nums text-zinc-200">
-              {{ formatFieldValue(field, tune[field.id as keyof TuneSettings] ?? null) }}
+              {{ formatFieldValue(field, tune[field.id as keyof TuneSettings] ?? null, unitFmt) }}
             </dd>
           </div>
         </dl>

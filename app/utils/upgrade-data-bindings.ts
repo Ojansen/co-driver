@@ -15,14 +15,10 @@
 
 import type { Binding, Row } from './tune-data-bindings'
 
-// --- formatters ------------------------------------------------------------
+// --- unit-agnostic formatters ---------------------------------------------
 
 const pct = (v: number, decimals = 1): string => `${(v * 100).toFixed(decimals)}%`
 const num = (v: number, decimals = 2): string => v.toFixed(decimals)
-const kmh = (v: number): string => `${Math.round(v)} km/h`
-const tempC = (v: number): string => `${v.toFixed(1)} °C`
-const kw = (v: number): string => `${Math.round(v)} kW`
-const nm = (v: number): string => `${Math.round(v)} Nm`
 const rpm = (v: number): string => `${Math.round(v)} rpm`
 const drivetrainLabel = (d: 'fwd' | 'rwd' | 'awd' | null): string => {
   if (d === 'fwd') return 'FWD'
@@ -34,13 +30,13 @@ const drivetrainLabel = (d: 'fwd' | 'rwd' | 'awd' | null): string => {
 // --- bindings --------------------------------------------------------------
 
 export const UPGRADE_DATA_BINDINGS: Record<string, Binding> = {
-  'tires': ({ signals: s, drivetrain }) => {
+  'tires': ({ signals: s, drivetrain, fmt }) => {
     const rows: Row[] = [
-      { label: 'FL temp avg', value: tempC(s.tireTempC.fl) },
-      { label: 'FR temp avg', value: tempC(s.tireTempC.fr) },
-      { label: 'RL temp avg', value: tempC(s.tireTempC.rl) },
-      { label: 'RR temp avg', value: tempC(s.tireTempC.rr) },
-      { label: 'All four in 85–100 °C', value: pct(s.tireTempC.allOptimalPct) }
+      { label: 'FL temp avg', value: fmt.temp(s.tireTempC.fl) },
+      { label: 'FR temp avg', value: fmt.temp(s.tireTempC.fr) },
+      { label: 'RL temp avg', value: fmt.temp(s.tireTempC.rl) },
+      { label: 'RR temp avg', value: fmt.temp(s.tireTempC.rr) },
+      { label: `All four in ${fmt.temp(85)}–${fmt.temp(100)}`, value: pct(s.tireTempC.allOptimalPct) }
     ]
     if (drivetrain === 'fwd') {
       rows.push({ label: 'Front L slip ratio (throttle > 0.5)', value: pct(s.slipRatio.fl, 1) })
@@ -67,21 +63,21 @@ export const UPGRADE_DATA_BINDINGS: Record<string, Binding> = {
       { label: 'Rear − Front Δ', value: pct(rearAvg - frontAvg, 2) }
     ]
   },
-  'engine-swap': ({ signals: s }) => [
-    { label: 'Peak power', value: kw(s.power.peakPowerKw) },
-    { label: 'Peak torque', value: nm(s.power.peakTorqueNm) },
+  'engine-swap': ({ signals: s, fmt }) => [
+    { label: 'Peak power', value: fmt.power(s.power.peakPowerKw) },
+    { label: 'Peak torque', value: fmt.torque(s.power.peakTorqueNm) },
     { label: 'RPM at peak power', value: rpm(s.power.rpmAtPeakPower) },
     { label: 'Frames at ≥ 98% rpmMax', value: pct(s.gear.atRevLimitPct, 2) }
   ],
-  'aspiration': ({ signals: s }) => [
+  'aspiration': ({ signals: s, fmt }) => [
     { label: 'Peak boost', value: num(s.boost.peakBoost, 2) },
     { label: 'Avg boost (throttle > 0.5)', value: num(s.boost.avgUnderThrottle, 2) },
-    { label: 'Peak power', value: kw(s.power.peakPowerKw) },
-    { label: 'Peak torque', value: nm(s.power.peakTorqueNm) }
+    { label: 'Peak power', value: fmt.power(s.power.peakPowerKw) },
+    { label: 'Peak torque', value: fmt.torque(s.power.peakTorqueNm) }
   ],
-  'aero-body': ({ signals: s }) => [
-    { label: 'Top speed', value: kmh(s.aero.topSpeedKmh) },
-    { label: 'Lateral G p95 above 150 km/h', value: num(Math.abs(s.aero.lateralGP95HighSpeed) / 9.81) + ' g' },
-    { label: 'Frames above 150 km/h', value: String(s.aero.highSpeedFrames) }
+  'aero-body': ({ signals: s, fmt }) => [
+    { label: 'Top speed', value: fmt.speed(s.aero.topSpeedKmh) },
+    { label: `Lateral G p95 above ${fmt.speed(150)}`, value: num(Math.abs(s.aero.lateralGP95HighSpeed) / 9.81) + ' g' },
+    { label: `Frames above ${fmt.speed(150)}`, value: String(s.aero.highSpeedFrames) }
   ]
 }

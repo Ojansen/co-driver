@@ -3,9 +3,11 @@
  * a Build. Mirrors `/tune/*` reference page structure. Phase 1b ships this
  * alongside `app/utils/build-fields.ts`.
  *
- * Stored in Forza's default units (lb/in for springs, psi for tire pressure,
- * degrees for alignment). Drivetrain-gated fields (differential) are filtered
- * by the parent build's drivetrain at render time.
+ * Stored in Forza's native units (lb/in for springs, psi for tire pressure,
+ * inches for ride height, lb for downforce, degrees for alignment). Fields
+ * carrying `unitCategory` have their displayed unit driven by useUnits
+ * prefs — storage stays canonical. Drivetrain-gated fields (differential)
+ * are filtered by the parent build's drivetrain at render time.
  */
 
 import type { SetupField } from './build-fields'
@@ -76,9 +78,9 @@ export const SECTION_LABELS: Record<typeof TUNE_SECTIONS[number], string> = {
 }
 
 export const TUNE_FIELDS: readonly TuneField[] = [
-  // Springs (lb/in)
-  { id: 'springsFront', label: 'Front springs', section: 'springs', kind: 'number', unit: ' lb/in', tuneRef: 'springs' },
-  { id: 'springsRear', label: 'Rear springs', section: 'springs', kind: 'number', unit: ' lb/in', tuneRef: 'springs' },
+  // Springs — stored in lb/in (Forza native); displayed via unit pref
+  { id: 'springsFront', label: 'Front springs', section: 'springs', kind: 'number', unitCategory: 'springRate', tuneRef: 'springs' },
+  { id: 'springsRear', label: 'Rear springs', section: 'springs', kind: 'number', unitCategory: 'springRate', tuneRef: 'springs' },
 
   // Dampers (1–20 scale)
   { id: 'bumpFront', label: 'Bump front', section: 'dampers', kind: 'number', tuneRef: 'dampers' },
@@ -90,9 +92,9 @@ export const TUNE_FIELDS: readonly TuneField[] = [
   { id: 'arbFront', label: 'Front ARB', section: 'arb', kind: 'number', tuneRef: 'anti-roll-bars' },
   { id: 'arbRear', label: 'Rear ARB', section: 'arb', kind: 'number', tuneRef: 'anti-roll-bars' },
 
-  // Ride height (in)
-  { id: 'rideHeightFront', label: 'Front ride height', section: 'rideHeight', kind: 'number', unit: ' in', tuneRef: 'ride-height' },
-  { id: 'rideHeightRear', label: 'Rear ride height', section: 'rideHeight', kind: 'number', unit: ' in', tuneRef: 'ride-height' },
+  // Ride height — stored in inches (Forza native); displayed via unit pref
+  { id: 'rideHeightFront', label: 'Front ride height', section: 'rideHeight', kind: 'number', unitCategory: 'distanceShortIn', tuneRef: 'ride-height' },
+  { id: 'rideHeightRear', label: 'Rear ride height', section: 'rideHeight', kind: 'number', unitCategory: 'distanceShortIn', tuneRef: 'ride-height' },
 
   // Alignment (degrees)
   { id: 'camberFront', label: 'Front camber', section: 'alignment', kind: 'number', unit: '°', tuneRef: 'alignment' },
@@ -101,9 +103,9 @@ export const TUNE_FIELDS: readonly TuneField[] = [
   { id: 'toeFront', label: 'Front toe', section: 'alignment', kind: 'number', unit: '°', tuneRef: 'alignment' },
   { id: 'toeRear', label: 'Rear toe', section: 'alignment', kind: 'number', unit: '°', tuneRef: 'alignment' },
 
-  // Tire pressure (psi)
-  { id: 'tirePressureFront', label: 'Front pressure', section: 'tirePressure', kind: 'number', unit: ' psi', tuneRef: 'tire-pressure' },
-  { id: 'tirePressureRear', label: 'Rear pressure', section: 'tirePressure', kind: 'number', unit: ' psi', tuneRef: 'tire-pressure' },
+  // Tire pressure — stored in psi (Forza native); displayed via unit pref
+  { id: 'tirePressureFront', label: 'Front pressure', section: 'tirePressure', kind: 'number', unitCategory: 'pressure', tuneRef: 'tire-pressure' },
+  { id: 'tirePressureRear', label: 'Rear pressure', section: 'tirePressure', kind: 'number', unitCategory: 'pressure', tuneRef: 'tire-pressure' },
 
   // Differential (%) — drivetrain-gated
   { id: 'frontAccel', label: 'Front accel', section: 'differential', kind: 'number', unit: '%', requiresDrivetrain: 'fwd', tuneRef: 'differential' },
@@ -116,9 +118,9 @@ export const TUNE_FIELDS: readonly TuneField[] = [
   { id: 'brakeBalance', label: 'Brake balance', section: 'brakes', kind: 'number', unit: '% front', tuneRef: 'brakes' },
   { id: 'brakePressure', label: 'Brake pressure', section: 'brakes', kind: 'number', unit: '%', tuneRef: 'brakes' },
 
-  // Aero
-  { id: 'aeroFront', label: 'Front aero', section: 'aero', kind: 'number', unit: ' lb', tuneRef: 'aero' },
-  { id: 'aeroRear', label: 'Rear aero', section: 'aero', kind: 'number', unit: ' lb', tuneRef: 'aero' },
+  // Aero — downforce stored in lb (Forza native); displayed via unit pref
+  { id: 'aeroFront', label: 'Front aero', section: 'aero', kind: 'number', unitCategory: 'downforce', tuneRef: 'aero' },
+  { id: 'aeroRear', label: 'Rear aero', section: 'aero', kind: 'number', unitCategory: 'downforce', tuneRef: 'aero' },
   { id: 'aeroBalance', label: 'Aero balance', section: 'aero', kind: 'number', unit: '% front', tuneRef: 'aero' },
 
   // Gearing — final drive only in v1; per-gear ratios deferred.

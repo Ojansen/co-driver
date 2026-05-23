@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { powerbandRange, type DynoCurve as Curve } from '~/utils/dyno'
 
+const { format } = useUnits()
+
 const props = withDefaults(defineProps<{
   curve: Curve
   title?: string
@@ -119,10 +121,10 @@ function fmtRpm(n: number): string {
   return Math.round(n).toString()
 }
 function fmtNm(n: number): string {
-  return Math.round(n) + ' Nm'
+  return format.torque(n)
 }
 function fmtKw(n: number): string {
-  return Math.round(n) + ' kW'
+  return format.power(n)
 }
 </script>
 

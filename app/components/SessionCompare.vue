@@ -4,6 +4,8 @@ import { diffSetup, SOURCE_LABEL, type SetupDiffRow } from '~/utils/setup-diff'
 import type { BuildSettings } from '~/utils/build-fields'
 import type { TuneSettings } from '~/utils/tune-fields'
 
+const { format, unitLabel, prefs } = useUnits()
+
 interface SideData {
   sessionId: number
   bestLapMs: number | null
@@ -81,15 +83,23 @@ const measurementRows = computed<MeasurementRow[]>(() => {
     direction: arrowFor(tbCurrent, tbPrior)
   })
 
-  // Peak power (kW)
+  // Peak power — converted to the user's unit pref. Delta is computed in the
+  // display unit so the magnitude matches what's shown next to it.
   const pkCurrent = props.current.peakPowerKw
   const pkPrior = props.prior.peakPowerKw
-  const pkDelta = (pkCurrent !== null && pkPrior !== null) ? pkCurrent - pkPrior : null
+  const toDisplayPower = (kw: number) => {
+    if (prefs.value.power === 'hp') return kw * 1.34102
+    if (prefs.value.power === 'ps') return kw * 1.35962
+    return kw
+  }
+  const pkDelta = (pkCurrent !== null && pkPrior !== null)
+    ? toDisplayPower(pkCurrent) - toDisplayPower(pkPrior)
+    : null
   rows.push({
     label: 'Peak power',
-    current: pkCurrent !== null ? Math.round(pkCurrent) + ' kW' : '—',
-    prior: pkPrior !== null ? Math.round(pkPrior) + ' kW' : '—',
-    delta: pkDelta === null ? null : signedDelta(pkDelta, 'kW'),
+    current: pkCurrent !== null ? format.power(pkCurrent) : '—',
+    prior: pkPrior !== null ? format.power(pkPrior) : '—',
+    delta: pkDelta === null ? null : signedDelta(pkDelta, unitLabel.power),
     direction: arrowFor(pkCurrent, pkPrior)
   })
 

@@ -6,6 +6,47 @@ import {
   tuneFieldsBySection,
   type TuneSettings
 } from '~/utils/tune-fields'
+import type { SetupField, UnitCategory } from '~/utils/build-fields'
+
+const { unitLabel, toDisplay, fromDisplay } = useUnits()
+
+/** Convert stored canonical value → displayed value (string for input v-bind).
+ *  For fields without unitCategory, the canonical value is the display value. */
+function displayValueFor(field: SetupField, canonical: string | number | null | undefined): string | number | null {
+  if (canonical === null || canonical === undefined || canonical === '') return null
+  if (!field.unitCategory) return canonical
+  const n = Number(canonical)
+  if (!Number.isFinite(n)) return canonical
+  return toDisplay[field.unitCategory](n)
+}
+
+/** Inverse: take the raw input string and return what should be written to
+ *  the canonical `values` map. Empty string / non-numeric clears to null. */
+function canonicalFromInput(field: SetupField, raw: string): string | number | null {
+  if (raw === '') return null
+  if (field.kind === 'number') {
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return null
+    if (field.unitCategory) return fromDisplay[field.unitCategory](n)
+    return n
+  }
+  return raw
+}
+
+/** Suffix the input placeholder hints at — uses live unit-pref labels for
+ *  switchable fields; falls back to the static `field.unit`. */
+function placeholderFor(field: SetupField): string {
+  if (field.unitCategory) {
+    const map: Record<UnitCategory, string> = {
+      pressure: unitLabel.pressure,
+      springRate: unitLabel.springRate,
+      distanceShortIn: unitLabel.distanceShort,
+      downforce: unitLabel.downforce
+    }
+    return map[field.unitCategory]
+  }
+  return field.unit ? field.unit.trim() : ''
+}
 
 const props = defineProps<{
   buildId: number
@@ -221,12 +262,13 @@ async function save() {
               </NuxtLink>
             </span>
             <input
-              v-model="values[field.id]"
+              :value="displayValueFor(field, values[field.id]) ?? ''"
               :type="field.kind === 'number' ? 'number' : 'text'"
               :step="field.kind === 'number' ? 'any' : undefined"
-              :placeholder="field.unit ? field.unit.trim() : ''"
+              :placeholder="placeholderFor(field)"
               :disabled="saving"
               class="rounded-sm border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-zinc-100 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
+              @input="(e) => values[field.id] = canonicalFromInput(field, (e.target as HTMLInputElement).value)"
             >
           </label>
         </div>

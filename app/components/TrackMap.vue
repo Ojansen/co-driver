@@ -5,6 +5,8 @@ import {
   type TrackPoint
 } from '~/utils/track-map'
 
+const { format } = useUnits()
+
 export interface TrackTrace {
   points: TrackPoint[]
   label?: string
@@ -373,7 +375,7 @@ function modeDisabled(m: ColorMode): boolean {
       <div class="mt-3 rounded-md border border-zinc-800/80 bg-zinc-950/40 px-3 pt-2 pb-1">
         <div class="mb-1 flex items-baseline justify-between text-[10px] uppercase tracking-[0.2em] text-zinc-500">
           <span>elevation</span>
-          <span class="tabular-nums">Δ {{ Math.round(elevDelta) }} m</span>
+          <span class="tabular-nums">Δ {{ format.distance(elevDelta) }}</span>
         </div>
         <svg
           :viewBox="`0 0 ${ELEV_VIEW_W} ${ELEV_VIEW_H}`"
@@ -454,7 +456,7 @@ function modeDisabled(m: ColorMode): boolean {
             fill="#52525b"
             font-size="8"
             font-family="monospace"
-          >0 m</text>
+          >{{ format.distance(0) }}</text>
           <text
             :x="ELEV_VIEW_W - 2"
             :y="ELEV_VIEW_H - 2"
@@ -462,7 +464,7 @@ function modeDisabled(m: ColorMode): boolean {
             fill="#52525b"
             font-size="8"
             font-family="monospace"
-          >{{ Math.round(bounds.maxDistance) }} m</text>
+          >{{ format.distance(bounds.maxDistance) }}</text>
         </svg>
       </div>
     </template>

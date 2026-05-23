@@ -7,6 +7,7 @@ const props = withDefaults(defineProps<{ slug: string, side?: 'tune' | 'upgrade'
 })
 
 const { data } = useTuneData()
+const { format } = useUnits()
 
 const binding = computed(() => {
   const registry = props.side === 'upgrade' ? UPGRADE_DATA_BINDINGS : TUNE_DATA_BINDINGS
@@ -15,7 +16,7 @@ const binding = computed(() => {
 
 const rows = computed(() => {
   if (!binding.value || !data.value) return null
-  return binding.value({ signals: data.value.signals, drivetrain: data.value.drivetrain })
+  return binding.value({ signals: data.value.signals, drivetrain: data.value.drivetrain, fmt: format })
 })
 
 const carLabel = computed(() => {

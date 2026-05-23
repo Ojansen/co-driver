@@ -7,6 +7,8 @@ const props = defineProps<{
   debug: DebugFrame | null
 }>()
 
+const { format, unitLabel } = useUnits()
+
 const open = ref(false)
 function toggle() {
   open.value = !open.value
@@ -33,6 +35,8 @@ interface Field {
   label: string
   value: unknown
   digits?: number
+  /** When set, skip `fmt(value, digits)` and render this string directly. */
+  display?: string
 }
 
 interface Section {
@@ -60,7 +64,7 @@ const sections = computed<Section[]>(() => {
         { label: 'rpmIdle', value: t.rpmIdle, digits: 0 },
         { label: 'gear', value: t.gear, digits: 0 },
         { label: 'power (W)', value: t.power, digits: 0 },
-        { label: 'torque (Nm)', value: t.torque, digits: 1 },
+        { label: `torque (${unitLabel.torque})`, value: t.torque, display: format.torque(t.torque) },
         { label: 'boost', value: t.boost }
       ]
     },
@@ -77,7 +81,7 @@ const sections = computed<Section[]>(() => {
     {
       title: 'motion',
       fields: [
-        { label: 'speed (km/h)', value: t.speedKmh, digits: 1 },
+        { label: `speed (${unitLabel.speed})`, value: t.speedKmh, display: format.speed(t.speedKmh) },
         { label: 'yaw', value: t.yaw },
         { label: 'pitch', value: t.pitch },
         { label: 'roll', value: t.roll },
@@ -96,12 +100,12 @@ const sections = computed<Section[]>(() => {
       ]
     },
     {
-      title: 'suspension (meters)',
+      title: `suspension (${unitLabel.distanceShort})`,
       fields: [
-        { label: 'fl', value: t.suspensionMeters.fl, digits: 4 },
-        { label: 'fr', value: t.suspensionMeters.fr, digits: 4 },
-        { label: 'rl', value: t.suspensionMeters.rl, digits: 4 },
-        { label: 'rr', value: t.suspensionMeters.rr, digits: 4 }
+        { label: 'fl', value: t.suspensionMeters.fl, display: format.distanceShort(t.suspensionMeters.fl) },
+        { label: 'fr', value: t.suspensionMeters.fr, display: format.distanceShort(t.suspensionMeters.fr) },
+        { label: 'rl', value: t.suspensionMeters.rl, display: format.distanceShort(t.suspensionMeters.rl) },
+        { label: 'rr', value: t.suspensionMeters.rr, display: format.distanceShort(t.suspensionMeters.rr) }
       ]
     },
     {
@@ -132,12 +136,12 @@ const sections = computed<Section[]>(() => {
       ]
     },
     {
-      title: 'tire temp (°C)',
+      title: `tire temp (${unitLabel.temperature})`,
       fields: [
-        { label: 'fl', value: t.tireTempC.fl, digits: 1 },
-        { label: 'fr', value: t.tireTempC.fr, digits: 1 },
-        { label: 'rl', value: t.tireTempC.rl, digits: 1 },
-        { label: 'rr', value: t.tireTempC.rr, digits: 1 }
+        { label: 'fl', value: t.tireTempC.fl, display: format.temp(t.tireTempC.fl) },
+        { label: 'fr', value: t.tireTempC.fr, display: format.temp(t.tireTempC.fr) },
+        { label: 'rl', value: t.tireTempC.rl, display: format.temp(t.tireTempC.rl) },
+        { label: 'rr', value: t.tireTempC.rr, display: format.temp(t.tireTempC.rr) }
       ]
     },
     {
@@ -148,7 +152,7 @@ const sections = computed<Section[]>(() => {
         { label: 'current (s)', value: t.lap.current, digits: 3 },
         { label: 'last (s)', value: t.lap.last, digits: 3 },
         { label: 'best (s)', value: t.lap.best, digits: 3 },
-        { label: 'distance (m)', value: t.lap.distance, digits: 1 }
+        { label: 'distance', value: t.lap.distance, display: format.distance(t.lap.distance) }
       ]
     },
     {
@@ -222,7 +226,7 @@ const sections = computed<Section[]>(() => {
               :key="field.label"
             >
               <span class="text-zinc-400">{{ field.label }}</span>
-              <span class="tabular-nums text-zinc-100">{{ fmt(field.value, field.digits) }}</span>
+              <span class="tabular-nums text-zinc-100">{{ field.display ?? fmt(field.value, field.digits) }}</span>
             </template>
           </div>
         </div>
