@@ -10,9 +10,21 @@ import { TRACE_BUFFER_SIZE, type TraceSample } from '../utils/trace'
  * frame whose timestamp is ≤ target. Re-anchors on rate change or seek to
  * keep the wall/game clock relationship clean.
  */
+/** Index of the first frame with a real on-track position. The game emits
+ *  `(0, 0, 0)` position frames during loading screens and the moment after
+ *  unpause before the car is placed; opening a replay there parks the
+ *  cursor off-map. Returns 0 if every frame is a loading frame. */
+function firstPlayableIndex(frames: Telemetry[]): number {
+  for (let i = 0; i < frames.length; i++) {
+    const p = frames[i]?.position
+    if (p && (p.x !== 0 || p.z !== 0)) return i
+  }
+  return 0
+}
+
 export function useReplay(initialFrames: Telemetry[]) {
   const frames = ref<Telemetry[]>(initialFrames)
-  const currentIndex = ref(0)
+  const currentIndex = ref(firstPlayableIndex(initialFrames))
   const playing = ref(false)
   const playbackRate = ref(1)
 
@@ -104,7 +116,7 @@ export function useReplay(initialFrames: Telemetry[]) {
     if (playing.value) return
     if (frames.value.length === 0) return
     if (currentIndex.value >= frames.value.length - 1) {
-      currentIndex.value = 0
+      currentIndex.value = firstPlayableIndex(frames.value)
     }
     reanchor()
     playing.value = true
@@ -141,7 +153,7 @@ export function useReplay(initialFrames: Telemetry[]) {
   function setFrames(newFrames: Telemetry[]) {
     pause()
     frames.value = newFrames
-    currentIndex.value = 0
+    currentIndex.value = firstPlayableIndex(newFrames)
   }
 
   watch(playbackRate, () => {

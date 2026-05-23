@@ -133,6 +133,10 @@ const trackPoints = computed(() => pointsFromFrames(props.frames))
 const trackCursor = computed(() => {
   const f = currentFrame.value
   if (!f || !f.position) return null
+  // Skip the (0, 0, 0) loading frames the game emits before the car is
+  // positioned — same filter `pointsFromFrames` uses. Without this, scrubbing
+  // back into the loading region parks the cursor off-map at world origin.
+  if (f.position.x === 0 && f.position.z === 0) return null
   return {
     x: f.position.x,
     z: f.position.z,
