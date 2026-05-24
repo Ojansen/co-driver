@@ -6,12 +6,34 @@ personal tuning instrument; **measurement-not-prescription**; player-centric
 language; build and tune as separate layers; the loop is tune-and-measure
 with `/tune/*` and `/upgrade/*` as the only prescriptive surfaces.
 
-Last refreshed 2026-05-22 (post-per-sector deltas).
+Last refreshed 2026-05-24 (post-compare-upgrades).
 
 ---
 
 ## Recently shipped
 
+- **`/compare` upgrades** — commit `dafd0b4`. Five bundled changes:
+  (1) **Δ TIME promoted to headline** in `OverlayTraces` — now the top
+  row at 2× height instead of the 4th row of four equal-weight rows.
+  (2) **Per-side lap dropdowns + ⇄ swap button** so any A/B pair is
+  reachable in one click, fed by a new `/api/events/[id]/laps`
+  endpoint. (3) **TrackMap overlay** of both routes in their legend
+  colors (A=white, B=amber) via a new optional `stroke` field on
+  `TrackTrace`; color-mode chips auto-hide when every trace has an
+  explicit stroke. (4) **Sector times + min-speed-per-sector
+  tables** side by side, consistently colored green when A did
+  better. (5) **Setup diff** panel reusing `diffSetup` from
+  Before/After Compare — frames endpoint extended to include build +
+  tune snapshots.
+- **`/hotlap` driver-glance page** — commit `355c542`. Live reference-lap
+  delta (zero-centred bar + giant current-lap clock), F1-style per-sector
+  cells (purple / green / yellow / red), predicted lap, theoretical lap
+  (sum of sector PBs), and a compact reference-route map with a live
+  cursor. Reference is the session-best so far with an all-time
+  car+event PB fallback via a new `/api/cars/:ordinal/best-lap`
+  endpoint, so the page is useful from the first lap. Knocks out
+  best-theoretical-lap outright and makes the reference-lap math
+  (`utils/lap-reference.ts`) reusable for ghost-lap-on-/live later.
 - **Per-sector times in the lap table** — commit `b262c90`. Each lap
   reports three sector times (equal-distance splits over
   `lap.distance`); the session-best sector per column gets the
@@ -171,20 +193,24 @@ prescriptive coaching layer.
   settings }`. Now possible because the Tune artifact (phase 1b) shipped —
   the slider numbers exist as structured data. ForzaTune Pro's signature
   feature; we already have the artifact, just need the endpoint.
-- **Apex-speed table** — per-corner minimum speed across laps. Falls out of
-  sector boundaries. *(pro-tool standard.)*
-- **Best theoretical lap** — sum-of-best-sectors. Falls out of sector
-  deltas. *(pro-tool standard headline number.)*
+- ~~Apex-speed table~~ — ✅ shipped (`dafd0b4`) on `/compare` as
+  per-sector minimum speed (A vs B vs delta). Approximates apex via
+  equal-distance sector buckets rather than real corner detection —
+  the latter would need curvature-based corner enumeration (still
+  unbuilt, see below).
+- ~~Best theoretical lap~~ — ✅ shipped (`355c542`) as part of `/hotlap`.
+  Sum-of-best-sectors footer under the predicted/last/best row.
+  Session-scoped only; not yet a column in the lap table — separate
+  iteration if that becomes useful.
 
 ### Bigger lifts
 
-- **Continuous delta-time vs distance** — pick two laps, plot cumulative
-  Δt along the distance axis. The single highest-leverage pro graph we
-  don't have today — pros reach for it before sector deltas. Distinct from
-  per-sector deltas (which are discrete bins); this shows the *shape* of
-  where time leaks. Builds naturally on top of the existing `align.ts`
-  resample. *(pro-tool standard — Coach Dave Delta's namesake graph; in
-  every MoTeC / Pi Toolbox / AiM workflow.)*
+- ~~Continuous delta-time vs distance~~ — ✅ shipped: math in `43ac856`
+  (Δ TIME as the 4th `OverlayTraces` row, two-color split at zero,
+  drag-zoom, Δ-at-finish header badge), headline promotion in
+  `dafd0b4` (moved to top of stack at 2× height). Pairs with the new
+  sector-delta and apex-speed tables on `/compare` for the
+  "where time leaks" picture.
 - **G-G trail / scatter** — extend the current single-instant G-G dot on
   the corner panel to a scatter of the last N seconds (live) or all frames
   in a lap (replay / session detail). The *shape* of the trace is the
@@ -199,10 +225,16 @@ prescriptive coaching layer.
   *(pro-tool standard — MoTeC ships these by discipline.)*
 - **Ghost-lap overlay on `/live`** — best lap as a translucent silhouette
   alongside live. Bigger because `/live` doesn't currently render a map.
-  Position-anchored rendering pattern proven.
+  Position-anchored rendering pattern proven. `utils/lap-reference.ts`
+  (from `/hotlap`) is the reusable distance→clock interpolation —
+  ghost-lap is now mostly a map-rendering exercise.
 - **Multi-lap overlay (N > 2) on compare page** — current compare does 2
-  traces; `align.ts` and TrackMap already generalise. Currently in progress
-  in the working tree.
+  traces (now with route overlay, sector + apex tables, and setup diff
+  per `dafd0b4`). Going to N needs: `framesList: AlignFrame[][]` +
+  `labels: string[]` on `OverlayTraces`, an array query param, a color
+  palette generator, and a reference-lap picker so the delta channel
+  isn't ambiguous with N−1 deltas. `align.ts` and TrackMap already
+  generalise.
 - **Race-stats aggregates** — sessions per car, hours per event, best by
   build/tune. Query work + cards. Independent of the map.
 
