@@ -6,12 +6,21 @@ personal tuning instrument; **measurement-not-prescription**; player-centric
 language; build and tune as separate layers; the loop is tune-and-measure
 with `/tune/*` and `/upgrade/*` as the only prescriptive surfaces.
 
-Last refreshed 2026-05-24 (post-compare-upgrades).
+Last refreshed 2026-05-24 (post-g-g-scatter).
 
 ---
 
 ## Recently shipped
 
+- **G-G scatter envelope on `/live`** — commit `c7e8d75`. The chassis
+  G-G dot in `CenterPanel` now renders ~20 s of history as a fading
+  amber scatter (200 samples, decimated to ~10 Hz) instead of a
+  glowing 1 s connected line. Density across the disc carries the
+  shape: a top-to-side arc reads as trail-braking, a vertical bar as
+  straight-line braking + acceleration, a horizontal blob as sustained
+  cornering — no copy required. Partial completion of the "G-G trail /
+  scatter" wishlist item; whole-lap version on `/replay` and `/compare`
+  remains open.
 - **`/compare` upgrades** — commit `dafd0b4`. Five bundled changes:
   (1) **Δ TIME promoted to headline** in `OverlayTraces` — now the top
   row at 2× height instead of the 4th row of four equal-weight rows.
@@ -211,12 +220,14 @@ prescriptive coaching layer.
   `dafd0b4` (moved to top of stack at 2× height). Pairs with the new
   sector-delta and apex-speed tables on `/compare` for the
   "where time leaks" picture.
-- **G-G trail / scatter** — extend the current single-instant G-G dot on
-  the corner panel to a scatter of the last N seconds (live) or all frames
-  in a lap (replay / session detail). The *shape* of the trace is the
-  measurement — a smooth arc from top to side is trail-braking visible at
-  a glance, without saying so in copy. *(pro-tool standard — friction
-  circle is in every pro tool.)*
+- **Whole-lap G-G scatter on `/replay` and `/compare`** — `/live`'s
+  G-G dot now shows the rolling ~20 s envelope (`c7e8d75`). What's
+  still open: render every frame of a completed lap as a faded dot so
+  the whole-lap envelope reads at a glance, plus A-vs-B G-G scatters
+  side by side on `/compare`. Lap data path is already there; mostly a
+  rendering + placement call (new dedicated component vs reuse the
+  `CenterPanel` disc). *(pro-tool standard — friction circle is in
+  every pro tool.)*
 - **Friction-circle utilization channel** — instantaneous "% of theoretical
   friction circle used" as a derived trace. Pairs with the G-G trail.
   *(pro-tool standard — combined-slip math channel.)*
