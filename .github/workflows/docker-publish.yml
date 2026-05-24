@@ -1,0 +1,70 @@
+name: docker-publish
+
+# Cuts a release container on every `v*` tag push (e.g. `git tag v0.2 && git push --tags`).
+# Pushes linux/amd64 + linux/arm64 to Docker Hub as :vX.Y.Z, :vX.Y, and :latest, and
+# mirrors README.md to the Docker Hub repo overview.
+#
+# Required repo secrets:
+#   DOCKERHUB_USERNAME  - Docker Hub login
+#   DOCKERHUB_TOKEN     - Docker Hub access token (Read & Write)
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  IMAGE: obedbj/co-driver
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE }}
+          short-description: ${{ github.event.repository.description }}
+          readme-filepath: ./README.md
