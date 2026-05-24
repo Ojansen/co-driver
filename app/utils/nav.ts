@@ -7,6 +7,7 @@ import type { DropdownMenuItem } from '@nuxt/ui'
 // elsewhere).
 export const NAV_ITEMS: DropdownMenuItem[] = [
   { label: 'Live', to: '/live' },
+  { label: 'Hotlap', to: '/hotlap' },
   { label: 'Dyno', to: '/dyno' },
   { label: 'Cars', to: '/cars' },
   { label: 'Events', to: '/events' },

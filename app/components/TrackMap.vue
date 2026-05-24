@@ -30,13 +30,18 @@ const props = withDefaults(defineProps<{
   /** When true, clicking the map emits `seek-to-position` with world (x, z).
    *  The parent translates that to a frame index and seeks. Replay-only. */
   seekable?: boolean
+  /** Driver-glance variant: drops the mode chips, elevation strip, and shrinks
+   *  the map height. Used by /hotlap where the route is one section in a
+   *  scrollable stack, not the focal viewer. */
+  compact?: boolean
 }>(), {
   points: () => [],
   traces: () => [],
   title: 'track',
   subtitle: '',
   currentPoint: null,
-  seekable: false
+  seekable: false,
+  compact: false
 })
 
 const emit = defineEmits<{
@@ -271,7 +276,10 @@ function modeDisabled(m: ColorMode): boolean {
           class="ml-3 normal-case tracking-normal text-zinc-500"
         >{{ subtitle }}</span>
       </span>
-      <span class="flex items-center gap-1">
+      <span
+        v-if="!compact"
+        class="flex items-center gap-1"
+      >
         <button
           v-for="m in modes"
           :key="m.value"
@@ -304,7 +312,7 @@ function modeDisabled(m: ColorMode): boolean {
         preserveAspectRatio="xMidYMid meet"
         class="block w-full"
         :class="seekable ? 'cursor-pointer' : ''"
-        :style="{ height: MAP_VIEW_H * 0.6 + 'px' }"
+        :style="{ height: (compact ? MAP_VIEW_H * 0.3 : MAP_VIEW_H * 0.6) + 'px' }"
         @click="onMapClick"
       >
         <!-- Backdrop traces (other laps): faint, single color -->
@@ -378,7 +386,10 @@ function modeDisabled(m: ColorMode): boolean {
       </svg>
 
       <!-- Elevation strip -->
-      <div class="mt-3 rounded-md border border-zinc-800/80 bg-zinc-950/40 px-3 pt-2 pb-1">
+      <div
+        v-if="!compact"
+        class="mt-3 rounded-md border border-zinc-800/80 bg-zinc-950/40 px-3 pt-2 pb-1"
+      >
         <div class="mb-1 flex items-baseline justify-between text-[10px] uppercase tracking-[0.2em] text-zinc-500">
           <span>elevation</span>
           <span class="tabular-nums">Δ {{ format.distance(elevDelta) }}</span>
