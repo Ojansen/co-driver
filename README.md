@@ -1,5 +1,7 @@
 # co-driver
 
+[![Source](https://img.shields.io/badge/source-github.com%2FOjansen%2Fco--driver-181717?logo=github)](https://github.com/Ojansen/co-driver) [![Docker Pulls](https://img.shields.io/docker/pulls/obedbj/co-driver)](https://hub.docker.com/r/obedbj/co-driver) [![License](https://img.shields.io/github/license/Ojansen/co-driver)](https://github.com/Ojansen/co-driver/blob/main/LICENSE)
+
 Self-hosted telemetry and tuning tool for **Forza Horizon 6**. Listens for the game's UDP "Data Out" packets on your own machine and turns them into a per-corner instrument, a lap recorder, and a tune-aware workflow. No accounts, no cloud, no third-party telemetry.
 
 > Measurement, not prescription. The tool shows you what the car actually did — you decide what to change.
