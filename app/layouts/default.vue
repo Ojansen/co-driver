@@ -227,16 +227,9 @@ useHead({
           <span class="flex items-center gap-2">
             <span
               class="inline-block h-2 w-2 rounded-full"
-              :class="connected ? 'bg-green-400' : 'bg-zinc-600'"
-            />
-            <span class="hidden sm:inline">{{ connected ? 'WS LINKED' : 'WS OFFLINE' }}</span>
-          </span>
-          <span class="flex items-center gap-2">
-            <span
-              class="inline-block h-2 w-2 rounded-full"
               :class="!connected ? 'bg-zinc-600' : forzaConnected ? 'bg-green-400' : 'bg-amber-400 animate-pulse'"
             />
-            <span class="hidden sm:inline">{{ !connected ? 'FORZA —' : forzaConnected ? 'FORZA STREAMING' : 'FORZA NO TELEMETRY' }}</span>
+            <span class="hidden sm:inline">{{ !connected ? 'OFFLINE' : forzaConnected ? 'STREAMING' : 'NO TELEMETRY' }}</span>
           </span>
           <span
             v-if="hasReceivedFrame && telemetry"
