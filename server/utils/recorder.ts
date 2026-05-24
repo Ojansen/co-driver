@@ -64,6 +64,12 @@ interface RecordingContext {
 
 export class Recorder {
   private latestFrame: Telemetry | null = null
+  // Most recent frame where the car identity block (ordinal/class/pi) was
+  // actually populated. Forza zeros these out on the pause menu and on
+  // pre-race UI even though packets keep arriving at 60Hz, so the latest
+  // frame is unsafe to read identity from. We snapshot it the last time we
+  // saw it valid and use that in start() — survives pauses cleanly.
+  private lastLiveFrame: Telemetry | null = null
   private ctx: RecordingContext | null = null
 
   constructor() {
@@ -87,9 +93,12 @@ export class Recorder {
 
   async start(eventId: number, tuneLabel: string | null = null): Promise<RecordingState> {
     if (this.ctx) return this.getState()
-    const frame = this.latestFrame
+    const frame = this.lastLiveFrame
     if (!frame) {
-      throw new Error('No telemetry frame received yet — start the race in-game first')
+      if (!this.latestFrame) {
+        throw new Error('No telemetry frame received yet — is Forza running with Data Out enabled?')
+      }
+      throw new Error('Waiting for car identity — start your race in-game first (paused/pre-race packets carry ordinal 0)')
     }
 
     const event = (await db.select().from(schema.events).where(eq(schema.events.id, eventId)).limit(1))[0]
@@ -190,6 +199,7 @@ export class Recorder {
 
   private onTelemetry(t: Telemetry): void {
     this.latestFrame = t
+    if (t.car.ordinal > 0) this.lastLiveFrame = t
     const ctx = this.ctx
     if (!ctx) return
 

@@ -39,6 +39,12 @@ interface ServerMessage {
 // nested telemetry objects, which was driving the bulk of live-view RAM.
 const _state = {
   telemetry: shallowRef<Telemetry | null>(null),
+  // Last car identity (ordinal/class) seen with ordinal > 0. Forza zeros
+  // these fields on the pause menu and pre-race UI even while packets keep
+  // arriving, so `telemetry.value.car.ordinal` reads 0 during pause — use
+  // this instead when you want the *current car*, not "what the wire said
+  // this instant".
+  lastLiveCar: shallowRef<{ ordinal: number, class: number, pi: number } | null>(null),
   debug: shallowRef<DebugFrame | null>(null),
   connected: ref(false),
   forzaConnected: ref(false),
@@ -132,6 +138,9 @@ function connect() {
       const t = markRaw(msg.t)
       _state.telemetry.value = t
       _state.hasReceivedFrame.value = true
+      if (t.car.ordinal > 0) {
+        _state.lastLiveCar.value = { ordinal: t.car.ordinal, class: t.car.class, pi: t.car.pi }
+      }
 
       // Drive pause-source transitions from the game's race state.
       // - live + race-off → upgrade to 'game' so panels freeze and DVR engages
@@ -268,6 +277,7 @@ export function useTelemetry() {
 
   return {
     telemetry: _state.telemetry,
+    lastLiveCar: _state.lastLiveCar,
     debug: _state.debug,
     connected: _state.connected,
     forzaConnected: _state.forzaConnected,

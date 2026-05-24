@@ -269,7 +269,42 @@ describe('recorder — edge cases', () => {
   it('start() before any telemetry → throws', async () => {
     dbState.reset('race')
     const recorder = new Recorder()
-    await expect(recorder.start(1, null)).rejects.toThrow(/start the race in-game first/)
+    await expect(recorder.start(1, null)).rejects.toThrow(/Forza running/)
+  })
+
+  it('start() when only paused/pre-race frames seen (ordinal 0) → throws with identity-specific message', async () => {
+    // Mirrors the real-world bug: app is up, Forza is on the pause menu or
+    // pre-race UI, so every packet so far has car.ordinal=0. The session
+    // would otherwise be created with ordinal 0.
+    dbState.reset('race')
+    const recorder = new Recorder()
+    const zeroIdentityFrame = {
+      isRaceOn: false,
+      timestampMs: 0,
+      lap: { number: 0, racePosition: 1, current: 0, last: 0, best: 0, raceTime: 0, distance: 0 },
+      car: { ordinal: 0, class: 0, pi: 0, drivetrain: 0, cylinders: 0 }
+    } as unknown as Telemetry
+    forzaBus.emit('telemetry', zeroIdentityFrame)
+    await expect(recorder.start(1, null)).rejects.toThrow(/car identity/)
+  })
+
+  it('start() during pause uses identity from the last live frame', async () => {
+    // Real-world: race ran, player hit pause, then started recording. Latest
+    // frame is the zeroed pause-menu packet; recorder must reach back to the
+    // last valid identity frame.
+    dbState.reset('race')
+    const recorder = new Recorder()
+    forzaBus.emit('telemetry', makeFrame({ lapNumber: 0, isRaceOn: true, timestampMs: 1000 }))
+    const paused = {
+      isRaceOn: false,
+      timestampMs: 1100,
+      lap: { number: 0, racePosition: 1, current: 0, last: 0, best: 0, raceTime: 0, distance: 0 },
+      car: { ordinal: 0, class: 0, pi: 0, drivetrain: 0, cylinders: 0 }
+    } as unknown as Telemetry
+    forzaBus.emit('telemetry', paused)
+    await recorder.start(1, null)
+    expect(dbState.sessionsInserted).toHaveLength(1)
+    expect(dbState.sessionsInserted[0]!.piAtStart).toBe(745)
   })
 
   it('session is ended on stop (endedAt set)', async () => {

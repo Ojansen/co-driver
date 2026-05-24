@@ -12,7 +12,7 @@ interface CarRow {
 
 const { data: cars, refresh: refreshCars } = await useFetch<CarRow[]>('/api/cars', { default: () => [] })
 
-const { telemetry, hasReceivedFrame } = useTelemetry()
+const { lastLiveCar } = useTelemetry()
 
 const CLASS_LETTERS = ['D', 'C', 'B', 'A', 'S1', 'S2', 'X', 'R']
 function carClassLetter(c: number): string {
@@ -27,10 +27,14 @@ function lastDrivenLabel(iso: string | null): string {
 const adding = ref(false)
 const addError = ref<string | null>(null)
 
+// Read from lastLiveCar (sticky across pause) rather than the latest frame:
+// Forza zeros car.ordinal on the pause menu, which would let the user "add"
+// a phantom ordinal-0 car. lastLiveCar carries the most recent populated
+// identity, so the button keeps showing the actual car you're in.
 const currentCar = computed(() => {
-  const t = telemetry.value
-  if (!t || !hasReceivedFrame.value) return null
-  return { ordinal: t.car.ordinal, class: t.car.class }
+  const c = lastLiveCar.value
+  if (!c) return null
+  return { ordinal: c.ordinal, class: c.class }
 })
 
 const currentCarInGarage = computed(() => {
