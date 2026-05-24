@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { gearLabel } from '~/utils/tuning'
 
-const { unitLabel, prefs } = useUnits()
+const { unitLabel, prefs, format } = useUnits()
 
 const props = defineProps<{
   rpm: number
@@ -13,6 +13,8 @@ const props = defineProps<{
   brake: number
   steer: number
   boost: number
+  /** engine power from telemetry, in watts */
+  power: number
   /** body-frame longitudinal acceleration (m/s²) — +ve forward */
   accelLong: number
   /** body-frame lateral acceleration (m/s²) — +ve to one side */
@@ -434,8 +436,12 @@ function signedFixed(v: number, digits: number): string {
           <span class="text-lg tabular-nums text-zinc-100">{{ signedFixed(yawRate, 2) }}</span>
         </div>
         <div class="flex items-center justify-between text-zinc-400">
+          <span>POWER</span>
+          <span class="text-lg tabular-nums text-zinc-100">{{ format.power(power / 1000) }}</span>
+        </div>
+        <div class="flex items-center justify-between text-zinc-400">
           <span>BOOST</span>
-          <span class="text-lg tabular-nums text-zinc-100">{{ boost.toFixed(2) }}</span>
+          <span class="text-lg tabular-nums text-zinc-100">{{ format.pressure(boost) }}</span>
         </div>
       </div>
     </div>

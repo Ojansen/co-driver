@@ -63,6 +63,7 @@ const oversteer = useSustained(
       :brake="frame?.brake ?? 0"
       :steer="frame?.steer ?? 0"
       :boost="frame?.boost ?? 0"
+      :power="frame?.power ?? 0"
       :accel-long="frame?.acceleration.z ?? 0"
       :accel-lat="frame?.acceleration.x ?? 0"
       :roll="frame?.roll ?? 0"
