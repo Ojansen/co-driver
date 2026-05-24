@@ -51,9 +51,9 @@ export function combColor(magnitude: number): string {
   return ZINC
 }
 
-/** Forza gear u8 → human label. 0=R, 1=N, 2=1st, ... */
+/** FH6 gear u8 → human label. 0=R, 1-10=gears, 11=N (also seen mid-shift). */
 export function gearLabel(g: number): string {
   if (g === 0) return 'R'
-  if (g === 1) return 'N'
-  return String(g - 1)
+  if (g >= 11) return 'N'
+  return String(g)
 }

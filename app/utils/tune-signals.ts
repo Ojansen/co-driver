@@ -259,15 +259,24 @@ export function summarizeGearing(frames: Telemetry[]): GearSummary {
   const sumByGear = new Map<number, { sum: number, count: number }>()
   let nearLimit = 0
   let shifts = 0
-  let prevGear = frames[0]!.gear
+  // Compare against the last *real* gear (1-10), not the immediately previous
+  // frame. FH6 sends 11 (N) mid-shift, so a 3→4 upshift looks like 3→11→4 in
+  // the stream — naively comparing adjacent frames would count it twice.
+  let prevRealGear = 0
+  const firstGear = frames[0]!.gear
+  if (firstGear >= 1 && firstGear <= 10) prevRealGear = firstGear
   for (const f of frames) {
-    const bucket = sumByGear.get(f.gear) ?? { sum: 0, count: 0 }
-    bucket.sum += f.rpm
-    bucket.count++
-    sumByGear.set(f.gear, bucket)
+    if (f.gear < 11) {
+      const bucket = sumByGear.get(f.gear) ?? { sum: 0, count: 0 }
+      bucket.sum += f.rpm
+      bucket.count++
+      sumByGear.set(f.gear, bucket)
+    }
     if (f.rpmMax > 0 && f.rpm >= f.rpmMax * REV_LIMIT_FRACTION) nearLimit++
-    if (f.gear !== prevGear && f.gear > 0 && prevGear > 0) shifts++
-    prevGear = f.gear
+    if (f.gear >= 1 && f.gear <= 10) {
+      if (prevRealGear > 0 && f.gear !== prevRealGear) shifts++
+      prevRealGear = f.gear
+    }
   }
   const rpmByGear: Record<number, number> = {}
   for (const [gear, b] of sumByGear) {

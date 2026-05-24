@@ -182,11 +182,37 @@ describe('summarizeGearing', () => {
     expect(s.rpmByGear[4]).toBeCloseTo((5500 + 6000) / 2, 1)
   })
 
-  it('ignores gear=0 (neutral) transitions', () => {
+  it('ignores gear=0 (reverse) transitions', () => {
     const frames = [
       frame({ gear: 2 }),
-      frame({ gear: 0 }), // neutral — should not count as a shift
+      frame({ gear: 0 }), // reverse — should not count as a shift
       frame({ gear: 2 })
+    ]
+    expect(summarizeGearing(frames).shiftCount).toBe(0)
+  })
+
+  it('treats FH6 mid-shift 11 (N) as a single shift, not two', () => {
+    // FH6 streams 3 → 11 → 4 during an upshift. Naively comparing adjacent
+    // frames would count two transitions; we want one.
+    const frames = [
+      frame({ gear: 3 }),
+      frame({ gear: 3 }),
+      frame({ gear: 11 }),
+      frame({ gear: 11 }),
+      frame({ gear: 4 }),
+      frame({ gear: 4 })
+    ]
+    const s = summarizeGearing(frames)
+    expect(s.shiftCount).toBe(1)
+    // The neutral state should not pollute rpmByGear.
+    expect(s.rpmByGear[11]).toBeUndefined()
+  })
+
+  it('does not count a clutch tap back to the same gear', () => {
+    const frames = [
+      frame({ gear: 3 }),
+      frame({ gear: 11 }),
+      frame({ gear: 3 })
     ]
     expect(summarizeGearing(frames).shiftCount).toBe(0)
   })
