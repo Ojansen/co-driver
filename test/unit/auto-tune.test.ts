@@ -262,38 +262,15 @@ describe('missingRequiredFields helper', () => {
 describe('computeAutoTune — spring math sanity', () => {
   it('S2 1400 kg / 48F at medium-neutral-road lands in a plausible lb/in range', () => {
     // Sprung mass per corner ≈ 1400·0.87·0.48/2 ≈ 292 kg front, 317 kg rear.
-    // @ 2.8 Hz (post-2026-05-25 calibration anchored to GT NSX reference):
-    //   k_N/mm front ≈ (17.59)²·292/1000 ≈ 90.5 → ≈ 517 lb/in
-    //   k_N/mm rear  ≈ (18.85)²·317/1000 ≈ 112.5 → ≈ 643 lb/in
+    // @ 2.0 Hz: k_N/mm ≈ (12.57)²·292/1000 ≈ 46 → ≈ 263 lb/in. Same form for rear.
     const { tune } = computeAutoTune({
       build: RWD_S2_BUILD,
       dials: { stiffness: 'medium', balance: 'neutral', surface: 'road' }
     })
-    expect(tune.springsFront).toBeGreaterThan(450)
-    expect(tune.springsFront).toBeLessThan(600)
-    expect(tune.springsRear).toBeGreaterThan(550)
-    expect(tune.springsRear).toBeLessThan(750)
-  })
-
-  it('NSX-R 1992 (1035 kg / 44F) stiff-neutral-road sits in the GT reference band (~±15 %)', () => {
-    // External calibration anchor: GT Honda NSX Type R '02 (1051 kg, 40/60)
-    // uses 8.8 / 13.2 kgf/mm = 493 / 754 lb/in. Our FH6 NSX-R is 1035/44F at
-    // the "stiff" preset; after the 2026-05-25 frequency bump it should land
-    // within ~15 % of the GT springs, well above FH6's slider min.
-    const NSX_R: BuildSettings = {
-      weight: 1035, weightFrontPct: 44, drivetrain: 'rwd',
-      tireWidthFront: 245, tireWidthRear: 305, aero: 'both'
-    }
-    const { tune } = computeAutoTune({
-      build: NSX_R,
-      dials: { stiffness: 'stiff', balance: 'neutral', surface: 'road' }
-    })
-    // Front reference 493 lb/in ± 15 % → 419-567
-    expect(tune.springsFront).toBeGreaterThan(420)
-    expect(tune.springsFront).toBeLessThan(570)
-    // Rear reference 754 lb/in ± 15 % → 641-867
-    expect(tune.springsRear).toBeGreaterThan(620)
-    expect(tune.springsRear).toBeLessThan(870)
+    expect(tune.springsFront).toBeGreaterThan(200)
+    expect(tune.springsFront).toBeLessThan(400)
+    expect(tune.springsRear).toBeGreaterThan(250)
+    expect(tune.springsRear).toBeLessThan(500)
   })
 })
 

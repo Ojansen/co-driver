@@ -70,10 +70,19 @@ const M_TO_FT = 3.28084
 const M_TO_MI = 0.000621371
 // Spring-rate metric conversions. FH6 lets the player pick between N/mm and
 // kgf/mm in its own settings — we mirror both. They differ by g (≈ 9.80665):
-// 1 lb/in × 0.175127  = N/mm    (sanity: 240 lb/in = 42 N/mm, FH6 slider min)
-// 1 lb/in × 0.0178579 = kgf/mm  (sanity: 240 lb/in = 4.29 kgf/mm)
+// 1 lb/in × 0.175127  = N/mm    (true SI conversion)
+// 1 lb/in × 0.0178579 = kgf/mm  (true SI conversion)
+//
+// FH6 display quirk: the in-game metric SLIDER shows 10× the actual spring
+// stiffness. A real 4.21 kgf/mm spring shows as "42.1" on the slider, with
+// the slider's metric min/max in turn displayed as "120-500 kgf/mm" (= a
+// real 12-50 kgf/mm range) and "400-2000 N/mm" (= 40-200 N/mm). We apply
+// the ×10 factor in the display and form-input layers below so what we
+// show matches what the player reads in-game; canonical storage stays in
+// lb/in (SI-exact) so the imperial path is unaffected.
 const LBIN_TO_NMM = 0.175127
 const LBIN_TO_KGFMM = 0.0178579
+const FH6_METRIC_SPRING_DISPLAY_FACTOR = 10
 const LB_TO_KGF = 0.453592
 const KW_TO_HP = 1.34102
 const KW_TO_PS = 1.35962
@@ -194,8 +203,14 @@ export function useUnits() {
       return `${(meters * 100).toFixed(2)} cm`
     },
     springRate(lbPerIn: number): string {
-      if (prefs.value.springRate === 'nmm') return `${(lbPerIn * LBIN_TO_NMM).toFixed(2)} N/mm`
-      if (prefs.value.springRate === 'kgfmm') return `${(lbPerIn * LBIN_TO_KGFMM).toFixed(2)} kgf/mm`
+      // ×10 for metric matches FH6's in-game slider display (see top-of-file
+      // note on the display quirk). Imperial lb/in path is unaffected.
+      if (prefs.value.springRate === 'nmm') {
+        return `${(lbPerIn * LBIN_TO_NMM * FH6_METRIC_SPRING_DISPLAY_FACTOR).toFixed(1)} N/mm`
+      }
+      if (prefs.value.springRate === 'kgfmm') {
+        return `${(lbPerIn * LBIN_TO_KGFMM * FH6_METRIC_SPRING_DISPLAY_FACTOR).toFixed(1)} kgf/mm`
+      }
       return `${Math.round(lbPerIn)} lb/in`
     },
     downforce(lb: number): string {
@@ -240,8 +255,14 @@ export function useUnits() {
       return psi
     },
     springRate(lbPerIn: number): number {
-      if (prefs.value.springRate === 'nmm') return Number((lbPerIn * LBIN_TO_NMM).toFixed(2))
-      if (prefs.value.springRate === 'kgfmm') return Number((lbPerIn * LBIN_TO_KGFMM).toFixed(2))
+      // Form-input mirror of the FH6 slider display: ×10 in metric so the
+      // value the user types matches what they read on the in-game slider.
+      if (prefs.value.springRate === 'nmm') {
+        return Number((lbPerIn * LBIN_TO_NMM * FH6_METRIC_SPRING_DISPLAY_FACTOR).toFixed(1))
+      }
+      if (prefs.value.springRate === 'kgfmm') {
+        return Number((lbPerIn * LBIN_TO_KGFMM * FH6_METRIC_SPRING_DISPLAY_FACTOR).toFixed(1))
+      }
       return lbPerIn
     },
     /** Stored field is in inches (Forza native ride-height unit). Metric
@@ -275,8 +296,14 @@ export function useUnits() {
       return v
     },
     springRate(v: number): number {
-      if (prefs.value.springRate === 'nmm') return Math.round(v / LBIN_TO_NMM)
-      if (prefs.value.springRate === 'kgfmm') return Math.round(v / LBIN_TO_KGFMM)
+      // Inverse of toDisplay: divide by 10 to strip the FH6 metric display
+      // factor before converting back to canonical lb/in.
+      if (prefs.value.springRate === 'nmm') {
+        return Math.round(v / FH6_METRIC_SPRING_DISPLAY_FACTOR / LBIN_TO_NMM)
+      }
+      if (prefs.value.springRate === 'kgfmm') {
+        return Math.round(v / FH6_METRIC_SPRING_DISPLAY_FACTOR / LBIN_TO_KGFMM)
+      }
       return v
     },
     distanceShortIn(v: number): number {
