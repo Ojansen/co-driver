@@ -50,7 +50,8 @@ const CATEGORIES: Category[] = [
     label: 'Spring rate',
     options: [
       { value: 'lbin', label: 'lb/in' },
-      { value: 'nmm', label: 'N/mm' }
+      { value: 'nmm', label: 'N/mm' },
+      { value: 'kgfmm', label: 'kgf/mm' }
     ]
   },
   {

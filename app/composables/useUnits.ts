@@ -14,7 +14,7 @@ interface UnitPrefs {
   pressure: 'psi' | 'bar' | 'kpa'
   /** Picks mm/m/km vs in/ft/mi contextually by magnitude. */
   distance: 'metric' | 'imperial'
-  springRate: 'lbin' | 'nmm'
+  springRate: 'lbin' | 'nmm' | 'kgfmm'
   downforce: 'lb' | 'kgf'
   power: 'hp' | 'kw' | 'ps'
   torque: 'lbft' | 'nm'
@@ -68,11 +68,12 @@ const PSI_TO_BAR = 0.0689476
 const PSI_TO_KPA = 6.89476
 const M_TO_FT = 3.28084
 const M_TO_MI = 0.000621371
-// FH6's metric spring-rate slider reads in N/mm (newton-per-millimetre). The
-// older "kgf/mm" label that some sim guides use is off by a factor of g
-// (≈ 9.80665): 1 lb/in × 0.0178579 ≈ kgf/mm; 1 lb/in × 0.175127 = N/mm.
-// Sanity check: 240 lb/in = 42 N/mm, matching the bottom of the FH6 slider.
+// Spring-rate metric conversions. FH6 lets the player pick between N/mm and
+// kgf/mm in its own settings — we mirror both. They differ by g (≈ 9.80665):
+// 1 lb/in × 0.175127  = N/mm    (sanity: 240 lb/in = 42 N/mm, FH6 slider min)
+// 1 lb/in × 0.0178579 = kgf/mm  (sanity: 240 lb/in = 4.29 kgf/mm)
 const LBIN_TO_NMM = 0.175127
+const LBIN_TO_KGFMM = 0.0178579
 const LB_TO_KGF = 0.453592
 const KW_TO_HP = 1.34102
 const KW_TO_PS = 1.35962
@@ -121,7 +122,11 @@ export function useUnits() {
     }),
     /** Bare suffix for tune-form inputs (short distance — ride height etc.) */
     distanceShort: computed(() => prefs.value.distance === 'imperial' ? 'in' : 'cm'),
-    springRate: computed(() => prefs.value.springRate === 'nmm' ? 'N/mm' : 'lb/in'),
+    springRate: computed(() => {
+      if (prefs.value.springRate === 'nmm') return 'N/mm'
+      if (prefs.value.springRate === 'kgfmm') return 'kgf/mm'
+      return 'lb/in'
+    }),
     // ride height: cm in metric (FH6 displays cm), in/ in imperial.
     downforce: computed(() => prefs.value.downforce === 'kgf' ? 'kgf' : 'lb'),
     power: computed(() => {
@@ -190,6 +195,7 @@ export function useUnits() {
     },
     springRate(lbPerIn: number): string {
       if (prefs.value.springRate === 'nmm') return `${(lbPerIn * LBIN_TO_NMM).toFixed(2)} N/mm`
+      if (prefs.value.springRate === 'kgfmm') return `${(lbPerIn * LBIN_TO_KGFMM).toFixed(2)} kgf/mm`
       return `${Math.round(lbPerIn)} lb/in`
     },
     downforce(lb: number): string {
@@ -235,6 +241,7 @@ export function useUnits() {
     },
     springRate(lbPerIn: number): number {
       if (prefs.value.springRate === 'nmm') return Number((lbPerIn * LBIN_TO_NMM).toFixed(2))
+      if (prefs.value.springRate === 'kgfmm') return Number((lbPerIn * LBIN_TO_KGFMM).toFixed(2))
       return lbPerIn
     },
     /** Stored field is in inches (Forza native ride-height unit). Metric
@@ -269,6 +276,7 @@ export function useUnits() {
     },
     springRate(v: number): number {
       if (prefs.value.springRate === 'nmm') return Math.round(v / LBIN_TO_NMM)
+      if (prefs.value.springRate === 'kgfmm') return Math.round(v / LBIN_TO_KGFMM)
       return v
     },
     distanceShortIn(v: number): number {
