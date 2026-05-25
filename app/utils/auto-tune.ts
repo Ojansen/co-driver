@@ -68,13 +68,42 @@ const FREQ_FRONT_BASE: Record<Surface, number> = {
 }
 const FREQ_REAR_OFFSET = 0.2
 
-/** Damper midpoints on FH's 1–20 scale at neutral dials. */
+/** Damper midpoints on FH's 1–20 scale at neutral dials, for the reference
+ *  build (see REFERENCE_*). Real damper rate scales with √(sprung mass)
+ *  per axle — critical damping is c ∝ √(k·m), and spring already encodes
+ *  mass via the frequency method. */
 const DAMPER_BUMP_BASE = 8
 const DAMPER_REBOUND_BASE = 11
 
-/** ARB midpoints on FH's 1–65 scale at neutral dials. */
+/** ARB midpoints on FH's 1–65 scale at neutral dials, for the reference
+ *  build. Heavier car ⇒ more body roll moment ⇒ stiffer ARB; scales
+ *  linearly with total mass relative to the reference. */
 const ARB_FRONT_BASE = 30
 const ARB_REAR_BASE = 28
+
+/** Reference build for the build-aware multipliers below.
+ *
+ *  Anchored to the values of the canonical test fixture (`RWD_S2_BUILD`
+ *  in test/unit/auto-tune.test.ts) so the existing precision assertions
+ *  continue to land at the same numeric outputs — a build matching the
+ *  reference produces a `*Scale === 1.0` multiplier everywhere, leaving
+ *  the dial-only path unchanged. Builds that differ from the reference
+ *  on weight / distribution / tire width get correspondingly different
+ *  dampers, ARBs, tire pressure, and brake balance. */
+const REFERENCE_TOTAL_KG = 1400
+const REFERENCE_FRONT_PCT = 48
+const REFERENCE_TIRE_WIDTH_MM = 245
+const REFERENCE_SPRUNG_F = REFERENCE_TOTAL_KG * (1 - UNSPRUNG_RATIO) * (REFERENCE_FRONT_PCT / 100) / 2
+const REFERENCE_SPRUNG_R = REFERENCE_TOTAL_KG * (1 - UNSPRUNG_RATIO) * (1 - REFERENCE_FRONT_PCT / 100) / 2
+const REFERENCE_UNSPRUNG_PER_CORNER = UNSPRUNG_RATIO * REFERENCE_TOTAL_KG / 4
+const REFERENCE_CORNER_LOAD_F = REFERENCE_SPRUNG_F + REFERENCE_UNSPRUNG_PER_CORNER
+const REFERENCE_CORNER_LOAD_R = REFERENCE_SPRUNG_R + REFERENCE_UNSPRUNG_PER_CORNER
+
+/** Power for the tire-pressure scaling exponent (load-per-mm-of-tread).
+ *  Sim-realistic tire pressure varies in a narrow ±~5 psi range around
+ *  the surface baseline; pow=0.4 keeps the magnitude in that range
+ *  rather than the dramatic ±30% that linear scaling would produce. */
+const TIRE_PRESSURE_LOAD_EXP = 0.4
 
 /** Ride height (inches) by surface — set near the practical minimum for road,
  *  more clearance for dirt / cross-country. */
@@ -185,14 +214,26 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   const stiff = STIFFNESS_MUL[dials.stiffness]
   const bal = BALANCE_VAL[dials.balance]
 
-  // Springs — frequency method, needs weight + front distribution.
+  // Sprung mass per corner — needed by springs AND by the build-aware
+  // damper / tire-pressure scales below. Computed once if the build is
+  // complete enough; falls back to the reference values otherwise so the
+  // preview keeps showing usable numbers when the form is incomplete.
   const weight = typeof build.weight === 'number' ? build.weight : null
   const distPct = typeof build.weightFrontPct === 'number' ? build.weightFrontPct : null
+  let sprungF = REFERENCE_SPRUNG_F
+  let sprungR = REFERENCE_SPRUNG_R
+  let frontDist = REFERENCE_FRONT_PCT / 100
+  let buildComplete = false
   if (weight !== null && distPct !== null) {
-    const frontDist = clamp(distPct / 100, 0.2, 0.8)
+    frontDist = clamp(distPct / 100, 0.2, 0.8)
     const sprungTotal = weight * (1 - UNSPRUNG_RATIO)
-    const sprungF = sprungTotal * frontDist / 2
-    const sprungR = sprungTotal * (1 - frontDist) / 2
+    sprungF = sprungTotal * frontDist / 2
+    sprungR = sprungTotal * (1 - frontDist) / 2
+    buildComplete = true
+  }
+
+  // Springs — frequency method.
+  if (buildComplete) {
     const freqFBase = FREQ_FRONT_BASE[dials.surface]
     const freqRBase = freqFBase + FREQ_REAR_OFFSET
     // Tight ⇒ stiffer front, softer rear (load to front to reduce rotation).
@@ -204,17 +245,30 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   // (When weight or weightFrontPct is missing, blockers prevents submission;
   // springs are left undefined in the preview.)
 
-  // Dampers — stiffness drives magnitude, balance shifts F/R. FH6 step is 0.1.
-  const bump = DAMPER_BUMP_BASE * stiff
-  const reb = DAMPER_REBOUND_BASE * stiff
-  tune.bumpFront = step1(clamp(bump + bal, 1, 20))
-  tune.bumpRear = step1(clamp(bump - bal, 1, 20))
-  tune.reboundFront = step1(clamp(reb + bal, 1, 20))
-  tune.reboundRear = step1(clamp(reb - bal, 1, 20))
+  // Build-aware multipliers — anchored to REFERENCE_*. A build matching the
+  // reference produces 1.0 everywhere; lighter / heavier / narrower-tire
+  // builds shift the magnitudes accordingly. Without these, dampers / ARBs /
+  // tire pressure / brake balance would be flat across cars (the session
+  // 19 bug: a 1035 kg RWD and a 1431 kg AWD produced near-identical tunes).
+  const damperScaleF = Math.sqrt(sprungF / REFERENCE_SPRUNG_F)
+  const damperScaleR = Math.sqrt(sprungR / REFERENCE_SPRUNG_R)
+  const arbScale = weight !== null ? (weight / REFERENCE_TOTAL_KG) : 1.0
+
+  // Dampers — stiffness drives magnitude; build mass drives per-axle scaling;
+  // balance shifts F/R by a fixed click. FH6 step is 0.1.
+  const bumpF = DAMPER_BUMP_BASE * stiff * damperScaleF
+  const bumpR = DAMPER_BUMP_BASE * stiff * damperScaleR
+  const rebF = DAMPER_REBOUND_BASE * stiff * damperScaleF
+  const rebR = DAMPER_REBOUND_BASE * stiff * damperScaleR
+  tune.bumpFront = step1(clamp(bumpF + bal, 1, 20))
+  tune.bumpRear = step1(clamp(bumpR - bal, 1, 20))
+  tune.reboundFront = step1(clamp(rebF + bal, 1, 20))
+  tune.reboundRear = step1(clamp(rebR - bal, 1, 20))
 
   // ARB — stiffer end ⇒ more load transfer ⇒ less grip at that end. FH6 step is 0.1.
-  tune.arbFront = step1(clamp(ARB_FRONT_BASE * stiff * (1 + 0.10 * bal), 1, 65))
-  tune.arbRear = step1(clamp(ARB_REAR_BASE * stiff * (1 - 0.10 * bal), 1, 65))
+  // Scales linearly with total mass relative to the reference.
+  tune.arbFront = step1(clamp(ARB_FRONT_BASE * stiff * (1 + 0.10 * bal) * arbScale, 1, 65))
+  tune.arbRear = step1(clamp(ARB_REAR_BASE * stiff * (1 - 0.10 * bal) * arbScale, 1, 65))
 
   // Ride height — surface-driven; same front/rear for v1.
   const rh = RIDE_HEIGHT_IN[dials.surface]
@@ -230,11 +284,25 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   // Tight ⇒ more rear toe-in for stability; loose ⇒ less.
   tune.toeRear = step1(clamp(TOE_REAR_BASE * (1 + 0.5 * bal), -5, 5))
 
-  // Tire pressure — flat F/R for v1; player adjusts after seeing tire-temp data.
-  // Anchored to FH6's 0.1-bar slider notch (= 1.0–3.8 bar valid window).
-  const tp = clamp(TIRE_PRESSURE_BAR[dials.surface] * BAR_TO_PSI, 14.5, 55.1)
-  tune.tirePressureFront = Number(tp.toFixed(4))
-  tune.tirePressureRear = Number(tp.toFixed(4))
+  // Tire pressure — surface gives the baseline; per-axle scaling by
+  // corner load / tire width (relative to the reference build). Heavier
+  // car-on-narrower-tire wants higher pressure; lighter-on-wider wants
+  // lower. pow=0.4 keeps the magnitude sim-realistic (±~5 psi around the
+  // surface baseline, not ±30%). Anchored to FH6's 0.1-bar slider notch.
+  const widthF = typeof build.tireWidthFront === 'number' ? build.tireWidthFront : REFERENCE_TIRE_WIDTH_MM
+  const widthR = typeof build.tireWidthRear === 'number' ? build.tireWidthRear : REFERENCE_TIRE_WIDTH_MM
+  const unsprungPerCorner = weight !== null ? UNSPRUNG_RATIO * weight / 4 : REFERENCE_UNSPRUNG_PER_CORNER
+  const cornerLoadF = sprungF + unsprungPerCorner
+  const cornerLoadR = sprungR + unsprungPerCorner
+  const tireScaleF = Math.pow(cornerLoadF / REFERENCE_CORNER_LOAD_F, TIRE_PRESSURE_LOAD_EXP)
+    / Math.pow(widthF / REFERENCE_TIRE_WIDTH_MM, TIRE_PRESSURE_LOAD_EXP)
+  const tireScaleR = Math.pow(cornerLoadR / REFERENCE_CORNER_LOAD_R, TIRE_PRESSURE_LOAD_EXP)
+    / Math.pow(widthR / REFERENCE_TIRE_WIDTH_MM, TIRE_PRESSURE_LOAD_EXP)
+  const tpBasePsi = TIRE_PRESSURE_BAR[dials.surface] * BAR_TO_PSI
+  const tpF = clamp(tpBasePsi * tireScaleF, 14.5, 55.1)
+  const tpR = clamp(tpBasePsi * tireScaleR, 14.5, 55.1)
+  tune.tirePressureFront = Number(tpF.toFixed(4))
+  tune.tirePressureRear = Number(tpR.toFixed(4))
 
   // Differential — drivetrain-gated. Tight ⇒ more lock (more traction bias).
   const drivetrain = typeof build.drivetrain === 'string' ? build.drivetrain : null
@@ -254,9 +322,13 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   }
   // (Missing drivetrain is a blocker — diff fields stay undefined in preview.)
 
-  // Brakes — slight front-bias bump for tight, dial back for loose. FH6
-  // allows 0–100% balance and 0–200% pressure; our baseline stays mid-range.
-  tune.brakeBalance = clamp(Math.round(BRAKE_BALANCE_BASE + 2 * bal), 0, 100)
+  // Brakes — front bias tracks the static weight distribution + 4 % for the
+  // dynamic forward weight transfer under hard braking, then ±2 % per
+  // balance click. A 48 % front car (reference) ⇒ 52 % bias, matching the
+  // previous flat constant. A 60 % front car ⇒ 64 % bias; a 40 % front
+  // car ⇒ 44 %. Falls back to BRAKE_BALANCE_BASE when distPct is missing.
+  const baseBalance = distPct !== null ? distPct + 4 : BRAKE_BALANCE_BASE
+  tune.brakeBalance = clamp(Math.round(baseBalance + 2 * bal), 0, 100)
   tune.brakePressure = clamp(BRAKE_PRESSURE, 0, 200)
 
   // Aero — emit per-axle absolute downforce (lb canonical; displays as kgf

@@ -324,6 +324,131 @@ describe('computeAutoTune — FH6 slider precision and ranges', () => {
   })
 })
 
+describe('computeAutoTune — build-aware fields (regression for session-19 bug)', () => {
+  // Same dials across every test in this block — the differences come from
+  // the build alone. Without per-build scaling on dampers / ARB / tire
+  // pressure / brake balance, two structurally different builds produced
+  // near-identical tunes (see tunes 7 & 8 in the dev DB, 2026-05-25).
+  const dials = { stiffness: 'medium' as const, balance: 'neutral' as const, surface: 'road' as const }
+
+  const lightCar: BuildSettings = {
+    weight: 1000, weightFrontPct: 45, drivetrain: 'rwd',
+    tireWidthFront: 245, tireWidthRear: 245
+  }
+  const heavyCar: BuildSettings = {
+    weight: 1500, weightFrontPct: 50, drivetrain: 'rwd',
+    tireWidthFront: 245, tireWidthRear: 245
+  }
+
+  it('dampers scale with per-axle sprung mass (heavier ⇒ stiffer dampers)', () => {
+    const light = computeAutoTune({ build: lightCar, dials }).tune
+    const heavy = computeAutoTune({ build: heavyCar, dials }).tune
+    expect(heavy.bumpFront).toBeGreaterThan(light.bumpFront as number)
+    expect(heavy.bumpRear).toBeGreaterThan(light.bumpRear as number)
+    expect(heavy.reboundFront).toBeGreaterThan(light.reboundFront as number)
+    expect(heavy.reboundRear).toBeGreaterThan(light.reboundRear as number)
+  })
+
+  it('ARB scales with total mass (heavier ⇒ stiffer ARB)', () => {
+    const light = computeAutoTune({ build: lightCar, dials }).tune
+    const heavy = computeAutoTune({ build: heavyCar, dials }).tune
+    expect(heavy.arbFront).toBeGreaterThan(light.arbFront as number)
+    expect(heavy.arbRear).toBeGreaterThan(light.arbRear as number)
+  })
+
+  it('brake balance tracks static weight distribution', () => {
+    const frontHeavy = computeAutoTune({ build: { ...lightCar, weightFrontPct: 62 }, dials }).tune
+    const rearHeavy = computeAutoTune({ build: { ...lightCar, weightFrontPct: 38 }, dials }).tune
+    // 62 % front ⇒ ~66 % brake bias (front transfer adds ~4 %)
+    // 38 % front ⇒ ~42 % brake bias
+    expect(frontHeavy.brakeBalance).toBeGreaterThan(rearHeavy.brakeBalance as number)
+    // ~24 pp spread is the load-bearing assertion (linear with distPct).
+    expect((frontHeavy.brakeBalance as number) - (rearHeavy.brakeBalance as number))
+      .toBeGreaterThanOrEqual(20)
+  })
+
+  it('tire pressure scales with corner load (heavier ⇒ higher pressure)', () => {
+    const light = computeAutoTune({ build: lightCar, dials }).tune
+    const heavy = computeAutoTune({ build: heavyCar, dials }).tune
+    expect(heavy.tirePressureFront).toBeGreaterThan(light.tirePressureFront as number)
+    expect(heavy.tirePressureRear).toBeGreaterThan(light.tirePressureRear as number)
+  })
+
+  it('tire pressure inversely scales with tire width (narrower ⇒ higher pressure)', () => {
+    const narrow = computeAutoTune({
+      build: { ...heavyCar, tireWidthFront: 195, tireWidthRear: 195 },
+      dials
+    }).tune
+    const wide = computeAutoTune({
+      build: { ...heavyCar, tireWidthFront: 335, tireWidthRear: 335 },
+      dials
+    }).tune
+    expect(narrow.tirePressureFront).toBeGreaterThan(wide.tirePressureFront as number)
+    expect(narrow.tirePressureRear).toBeGreaterThan(wide.tirePressureRear as number)
+  })
+
+  it('the actual session-19 builds (1035 kg RWD vs 1431 kg AWD) produce noticeably different tunes', () => {
+    // These are the real numbers from the dev DB. Before this fix the
+    // emitted tunes differed only in springs and diff fields — everything
+    // else was flat. After the fix the dampers / ARB / brake balance /
+    // tire pressure all move with the build too.
+    const lightRwd: BuildSettings = {
+      weight: 1035, weightFrontPct: 44, drivetrain: 'rwd',
+      tireWidthFront: 245, tireWidthRear: 305
+    }
+    const heavyAwd: BuildSettings = {
+      weight: 1431, weightFrontPct: 45, drivetrain: 'awd',
+      tireWidthFront: 245, tireWidthRear: 335
+    }
+    const a = computeAutoTune({ build: lightRwd, dials }).tune
+    const b = computeAutoTune({ build: heavyAwd, dials }).tune
+
+    // Springs already worked pre-fix — keep asserting it.
+    expect(Math.abs((a.springsFront as number) - (b.springsFront as number))).toBeGreaterThan(20)
+    // The four fields the fix targets:
+    expect(Math.abs((a.bumpFront as number) - (b.bumpFront as number))).toBeGreaterThan(0.5)
+    expect(Math.abs((a.reboundRear as number) - (b.reboundRear as number))).toBeGreaterThan(0.5)
+    expect(Math.abs((a.arbFront as number) - (b.arbFront as number))).toBeGreaterThan(2)
+    expect(Math.abs((a.tirePressureFront as number) - (b.tirePressureFront as number)))
+      .toBeGreaterThan(1)
+    expect(Math.abs((a.brakeBalance as number) - (b.brakeBalance as number)))
+      .toBeGreaterThanOrEqual(1)
+  })
+
+  it('falls back to reference scaling when build is incomplete', () => {
+    // Damper / ARB / tire-pressure preview values should still appear even
+    // though springs are blocked — they fall back to the reference
+    // multipliers (= 1.0) rather than NaN-ing out.
+    const { tune, blockers } = computeAutoTune({ build: {}, dials })
+    expect(blockers.length).toBeGreaterThan(0)
+    expect(tune.bumpFront).toBeDefined()
+    expect(tune.bumpFront).toBeGreaterThan(0)
+    expect(tune.arbFront).toBeDefined()
+    expect(tune.tirePressureFront).toBeDefined()
+    expect(tune.brakeBalance).toBeDefined()
+    expect(Number.isFinite(tune.bumpFront)).toBe(true)
+    expect(Number.isFinite(tune.tirePressureFront)).toBe(true)
+  })
+
+  it('the reference build produces the same numeric output as the previous flat path', () => {
+    // RWD_S2_BUILD is intentionally aligned to REFERENCE_TOTAL_KG / FRONT_PCT,
+    // so the build-aware multipliers all resolve to 1.0 and the dial-only
+    // math falls through unchanged. This anchors the precision tests.
+    const { tune } = computeAutoTune({
+      build: RWD_S2_BUILD,
+      dials: { stiffness: 'medium', balance: 'neutral', surface: 'road' }
+    })
+    // bump = 8 * 1.0 * 1.0 + 0 = 8 (exactly)
+    expect(tune.bumpFront).toBe(8)
+    expect(tune.bumpRear).toBe(8)
+    // arbFront = 30 * 1.0 * 1.0 * 1.0 = 30
+    expect(tune.arbFront).toBe(30)
+    expect(tune.arbRear).toBe(28)
+    // brakeBalance = 48 + 4 + 0 = 52 (matches pre-fix flat value)
+    expect(tune.brakeBalance).toBe(52)
+  })
+})
+
 describe('autoTuneSlug', () => {
   it('generates a short kebab-case identifier', () => {
     expect(autoTuneSlug({ stiffness: 'medium', balance: 'neutral', surface: 'road' })).toBe('baseline-medium-neutral-road')
