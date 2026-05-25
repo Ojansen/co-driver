@@ -64,6 +64,8 @@ const drivetrain = computed<string | null>(() => {
   return typeof dt === 'string' ? dt : null
 })
 
+const existingTuneNames = computed(() => tunes.value?.map(t => t.name) ?? [])
+
 const newTuneName = ref('')
 const creating = ref(false)
 const tuneCreateError = ref<string | null>(null)
@@ -125,6 +127,47 @@ async function onTuneSaved(saved: { id: number }) {
   Reflect.deleteProperty(tuneDetailCache, saved.id)
   await refreshTunes()
 }
+
+async function onBaselineCreated(created: { id: number }) {
+  await refreshTunes()
+  // Open the new baseline immediately so the user can review the seed values.
+  await loadTuneDetail(created.id)
+  expandedTuneId.value = created.id
+}
+
+// --- Tune delete -----------------------------------------------------------
+
+const deleteOpen = ref(false)
+const deleting = ref(false)
+const deleteError = ref<string | null>(null)
+const deleteTarget = ref<TuneRow | null>(null)
+
+function askDelete(tune: TuneRow) {
+  deleteTarget.value = tune
+  deleteError.value = null
+  deleteOpen.value = true
+}
+
+async function confirmDeleteTune() {
+  const target = deleteTarget.value
+  if (!target || deleting.value) return
+  deleting.value = true
+  deleteError.value = null
+  try {
+    await $fetch(`/api/tunes/${target.id}`, { method: 'DELETE' })
+    deleteOpen.value = false
+    deleteTarget.value = null
+    if (editingTuneId.value === target.id) editingTuneId.value = null
+    if (expandedTuneId.value === target.id) expandedTuneId.value = null
+    Reflect.deleteProperty(tuneDetailCache, target.id)
+    await refreshTunes()
+  } catch (err) {
+    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
+    deleteError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'delete failed'
+  } finally {
+    deleting.value = false
+  }
+}
 </script>
 
 <template>
@@ -177,6 +220,18 @@ async function onTuneSaved(saved: { id: number }) {
       <div class="mb-3 flex items-baseline justify-between font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-500">
         <span>Tunes for this build</span>
         <span class="text-zinc-600 normal-case tracking-normal">{{ tunes?.length ?? 0 }} total</span>
+      </div>
+
+      <div
+        v-if="build"
+        class="mb-3"
+      >
+        <AutoTuneGenerator
+          :build-id="buildId"
+          :build="build.settings"
+          :existing-names="existingTuneNames"
+          @created="onBaselineCreated"
+        />
       </div>
 
       <div class="mb-3 card p-4">
@@ -248,13 +303,22 @@ async function onTuneSaved(saved: { id: number }) {
                   {{ tune.sessionCount }} session{{ tune.sessionCount === 1 ? '' : 's' }} · created {{ relativeDate(tune.createdAt) }}
                 </div>
               </button>
-              <button
-                type="button"
-                class="rounded-sm border border-zinc-700 bg-zinc-900 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-200 transition-colors hover:border-zinc-500"
-                @click="startEdit(tune.id)"
-              >
-                Edit
-              </button>
+              <div class="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  class="rounded-sm border border-zinc-700 bg-zinc-900 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-200 transition-colors hover:border-zinc-500"
+                  @click="startEdit(tune.id)"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  class="rounded-sm border border-zinc-800 bg-zinc-950 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 transition-colors hover:border-red-500/50 hover:text-red-300"
+                  @click="askDelete(tune)"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
             <div
               v-if="expandedTuneId === tune.id && tuneDetailCache[tune.id]"
@@ -277,5 +341,36 @@ async function onTuneSaved(saved: { id: number }) {
         No tunes for this build yet. Create one above.
       </div>
     </section>
+
+    <ConfirmModal
+      v-model:open="deleteOpen"
+      :title="deleteTarget ? `Delete tune “${deleteTarget.name}”?` : 'Delete tune?'"
+      confirm-label="Delete tune"
+      :busy="deleting"
+      @confirm="confirmDeleteTune"
+    >
+      <p>
+        Permanently remove this tune.
+        <span class="text-zinc-300">Cannot be undone.</span>
+      </p>
+      <ul
+        v-if="deleteTarget"
+        class="mt-3 space-y-1 text-xs text-zinc-300"
+      >
+        <li v-if="deleteTarget.sessionCount > 0">
+          · {{ deleteTarget.sessionCount }} session{{ deleteTarget.sessionCount === 1 ? '' : 's' }} will be unlinked
+          <span class="text-zinc-500">(their tune snapshot stays — laps + compare still work)</span>
+        </li>
+        <li v-else>
+          · No sessions reference this tune.
+        </li>
+      </ul>
+      <p
+        v-if="deleteError"
+        class="mt-3 text-xs text-red-400"
+      >
+        {{ deleteError }}
+      </p>
+    </ConfirmModal>
   </main>
 </template>

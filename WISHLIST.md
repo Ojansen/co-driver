@@ -12,6 +12,66 @@ Last refreshed 2026-05-25 (post-manual).
 
 ## Recently shipped
 
+- **Auto baseline tune (calibration pending)** — `app/utils/auto-tune.ts`
+  + `app/components/AutoTuneGenerator.vue`, mounted on the build detail
+  page above the manual "New tune" card. Three dials — stiffness
+  (soft/medium/stiff) × balance (loose/neutral/tight) × surface
+  (road/dirt/cross) — feed a pure calculator that reads the existing
+  build (weight, weight-front %, drivetrain, aero) and writes a complete
+  tune row through the existing `/api/builds/[id]/tunes` POST. Spring
+  rates use the frequency method (`k = (2π·f)² · m / 1000`, lb/in);
+  dampers / ARB / ride height / camber / toe / caster / tire pressure /
+  diff (drivetrain-gated) / brake balance all populate from physics +
+  surface lookups. **Philosophy fit:** baseline-as-on-ramp, not
+  prescription — the `/tune` diagnostic workflow (damper histograms,
+  load, G-G) stays the main event. The generator only provides a
+  starting point that newcomers can refine, instead of asking them to
+  learn every slider before they touch the car. No symptom→fix rules,
+  no driving-data feedback in v1; this is the *physics seed*, the
+  diagnostic layer does the rest. 18 unit tests, lint clean.
+
+  **Calibration status:** the constants in `auto-tune.ts` CALIBRATION
+  section are starting estimates from suspension physics + community
+  norms; expect outputs to be in the right neighborhood but not
+  tournament-ready. The damper raw → 1-20 mapping and the ARB 1-65
+  scaling are the biggest unknowns — there is no public FH6 source for
+  these yet (game is one week old).
+
+  **What to do to verify later** (≈ 30 min in ForzaTune + 30 min refit):
+  1. Pick **6 representative builds** spanning the matrix: light FWD
+     road, mid-weight RWD road, heavy AWD road, light dirt buggy,
+     RWD cross-country, S2 GT-style. Note each one's weight,
+     weight-front %, drivetrain, tire compound.
+  2. For each build, open ForzaTune's FH6-beta calculator and capture
+     its full tune output at **3 stiffness presets** (soft / medium /
+     stiff) with the closest equivalent of "neutral balance, surface
+     matching the build." That's 18 captures total.
+  3. Add **3 more captures** for one build (any one) across the
+     **balance** axis (loose / neutral / tight) at medium stiffness,
+     to verify the linear-scaling assumption for balance.
+  4. Record into a CSV with columns: build_id, dials, springsF/R,
+     bumpF/R, reboundF/R, arbF/R, rideHeightF/R, camberF/R, casterF,
+     toeF/R, tirePressureF/R, diff fields, brakeBalance, aeroBalance.
+  5. Back-solve the constants by comparing ForzaTune output to
+     `computeAutoTune` output at the same dials. Specifically refit:
+     - `FREQ_FRONT_BASE` per surface (springs give it away directly;
+       you know mass + dist, so `f = √(k·1000 / m) / (2π)`)
+     - The damper 1-20 mapping — fit a line/curve so our 6 medium-
+       stiffness captures match ForzaTune within ±2 clicks
+     - `ARB_FRONT_BASE` / `ARB_REAR_BASE` — average the 18 captures
+     - Diff direction (we guessed "tight ⇒ more lock"; check it)
+  6. Sanity-check against 2-3 published FH6 community baseline tunes
+     if any exist by then (forzatune.com, r/ForzaHorizon).
+  7. Edit the CALIBRATION constants in `app/utils/auto-tune.ts` and
+     re-run `bun test:unit -- auto-tune` — the sanity-range tests
+     should still pass; if they don't, the new constants are
+     out-of-band.
+
+  **Where to find the calibration knobs:** they're all named
+  constants in `app/utils/auto-tune.ts` under the `CALIBRATION`
+  banner (lines ~50-100). No formula changes needed — just numeric
+  refits.
+
 - **Per-surface manual at `/manual/*`** — commit `a51dfaf`. Reading
   guide for every visualization the tool ships, organized by where
   it lives: one page per surface (`/manual/live`, `/manual/replay`,
