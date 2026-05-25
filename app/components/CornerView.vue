@@ -33,6 +33,45 @@ const oversteer = useSustained(
   () => anyEngaged.value && absSteer.value > 0.3 && (rearAvg.value - frontAvg.value) > 0.25,
   250
 )
+
+// Per-corner damper velocity (mm/s, signed: +ve = compression).
+// Computed from frame-to-frame `suspensionMeters` delta. dt > 100 ms is
+// treated as a seek / pause edge and the value held — this avoids one
+// huge spike after a pause skews the live readout.
+interface DamperVelocity { fl: number, fr: number, rl: number, rr: number }
+interface PrevSusp {
+  ts: number
+  fl: number
+  fr: number
+  rl: number
+  rr: number
+}
+const prevSusp = ref<PrevSusp | null>(null)
+const damperVelocity = ref<DamperVelocity>({ fl: 0, fr: 0, rl: 0, rr: 0 })
+
+watch(() => props.frame, (f) => {
+  if (!f) return
+  const cur: PrevSusp = {
+    ts: f.timestampMs,
+    fl: f.suspensionMeters.fl,
+    fr: f.suspensionMeters.fr,
+    rl: f.suspensionMeters.rl,
+    rr: f.suspensionMeters.rr
+  }
+  const p = prevSusp.value
+  if (p) {
+    const dtSec = (cur.ts - p.ts) / 1000
+    if (dtSec > 0 && dtSec < 0.1) {
+      damperVelocity.value = {
+        fl: (cur.fl - p.fl) / dtSec * 1000,
+        fr: (cur.fr - p.fr) / dtSec * 1000,
+        rl: (cur.rl - p.rl) / dtSec * 1000,
+        rr: (cur.rr - p.rr) / dtSec * 1000
+      }
+    }
+  }
+  prevSusp.value = cur
+})
 </script>
 
 <template>
@@ -45,6 +84,7 @@ const oversteer = useSustained(
       side="left"
       :suspension="frame?.suspension.fl ?? 0"
       :suspension-meters="frame?.suspensionMeters.fl ?? 0"
+      :damper-velocity-mm-s="damperVelocity.fl"
       :slip-ratio="frame?.slipRatio.fl ?? 0"
       :slip-angle="frame?.slipAngle.fl ?? 0"
       :combined-slip="frame?.combinedSlip.fl ?? 0"
@@ -75,6 +115,7 @@ const oversteer = useSustained(
       side="right"
       :suspension="frame?.suspension.fr ?? 0"
       :suspension-meters="frame?.suspensionMeters.fr ?? 0"
+      :damper-velocity-mm-s="damperVelocity.fr"
       :slip-ratio="frame?.slipRatio.fr ?? 0"
       :slip-angle="frame?.slipAngle.fr ?? 0"
       :combined-slip="frame?.combinedSlip.fr ?? 0"
@@ -87,6 +128,7 @@ const oversteer = useSustained(
       side="left"
       :suspension="frame?.suspension.rl ?? 0"
       :suspension-meters="frame?.suspensionMeters.rl ?? 0"
+      :damper-velocity-mm-s="damperVelocity.rl"
       :slip-ratio="frame?.slipRatio.rl ?? 0"
       :slip-angle="frame?.slipAngle.rl ?? 0"
       :combined-slip="frame?.combinedSlip.rl ?? 0"
@@ -99,6 +141,7 @@ const oversteer = useSustained(
       side="right"
       :suspension="frame?.suspension.rr ?? 0"
       :suspension-meters="frame?.suspensionMeters.rr ?? 0"
+      :damper-velocity-mm-s="damperVelocity.rr"
       :slip-ratio="frame?.slipRatio.rr ?? 0"
       :slip-angle="frame?.slipAngle.rr ?? 0"
       :combined-slip="frame?.combinedSlip.rr ?? 0"

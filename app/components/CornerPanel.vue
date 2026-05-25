@@ -10,6 +10,9 @@ const props = withDefaults(defineProps<{
   suspension: number
   /** absolute travel in meters from the Dash packet */
   suspensionMeters: number
+  /** signed damper velocity in mm/s — positive = compression, negative = rebound.
+   *  Computed by the parent from frame-to-frame `suspensionMeters` delta. */
+  damperVelocityMmS?: number
   slipRatio: number
   slipAngle: number
   combinedSlip: number
@@ -20,6 +23,7 @@ const props = withDefaults(defineProps<{
   /** comparative chip: rear-pair shows it when the rear is on a longer leash */
   oversteer?: boolean
 }>(), {
+  damperVelocityMmS: 0,
   understeer: false,
   oversteer: false
 })
@@ -31,6 +35,25 @@ const ratioColor = computed(() => slipColor(Math.abs(props.slipRatio)))
 const angleColor = computed(() => slipColor(Math.abs(props.slipAngle)))
 const combinedColor = computed(() => combColor(props.combinedSlip))
 const align = computed(() => props.side === 'left' ? 'text-left' : 'text-right')
+
+// Damper velocity readout — pro-tool zone convention:
+//   |v| < 25 mm/s  → slow (normal cornering / smooth surface)
+//   25..50 mm/s    → medium
+//   |v| > 50 mm/s  → fast (kerb hits, rapid weight transfer — damper is working)
+// Color reflects which zone you're in so the eye picks out the fast bumps
+// without needing to read the number.
+const damperVelocityClass = computed(() => {
+  const abs = Math.abs(props.damperVelocityMmS)
+  if (abs >= 50) return 'text-amber-300'
+  if (abs >= 25) return 'text-zinc-200'
+  return 'text-zinc-500'
+})
+
+const damperVelocityText = computed(() => {
+  const v = Math.round(props.damperVelocityMmS)
+  const sign = v > 0 ? '+' : ''
+  return `${sign}${v}`
+})
 
 // --- Diagnostic chips ------------------------------------------------------
 // Each chip is a single threshold rule, sustained briefly to kill transients.
@@ -155,7 +178,11 @@ const trailPath = computed(() => {
           />
         </NuxtLink>
         <span class="tabular-nums">
-          <span class="text-zinc-500">{{ format.distanceShort(suspensionMeters) }}</span>
+          <span
+            :class="damperVelocityClass"
+            :title="'Damper velocity: +ve compression, -ve rebound · |v|>50 mm/s is the fast zone'"
+          >{{ damperVelocityText }}<span class="ml-0.5 text-zinc-600">mm/s</span></span>
+          <span class="ml-2 text-zinc-500">{{ format.distanceShort(suspensionMeters) }}</span>
           <span class="ml-2 text-base text-zinc-200">{{ suspension.toFixed(2) }}</span>
         </span>
       </div>
