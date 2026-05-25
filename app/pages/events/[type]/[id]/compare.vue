@@ -3,6 +3,7 @@ import { EVENT_TYPE_LABELS, isEventType, type EventType } from '~/utils/event-ty
 import { formatLap, formatDelta } from '~/utils/format'
 import { pointsFromFrames } from '~/utils/track-map'
 import { computeSectorTimes, minSpeedPerSector } from '~/utils/sectors'
+import { damperHistogramsForLap } from '~/utils/damper-velocity'
 import { diffSetup, SOURCE_LABEL, type SetupDiffRow } from '~/utils/setup-diff'
 import type { BuildSettings } from '~/utils/build-fields'
 import type { TuneSettings } from '~/utils/tune-fields'
@@ -157,6 +158,16 @@ const trackTraces = computed(() => {
     { points: pointsFromFrames(b.frames), label: 'B', stroke: COLOR_B }
   ]
 })
+
+// --- Damper velocity histograms ------------------------------------------
+// Whole-lap aggregates per corner — A vs B side-by-side answers "what
+// chassis behavior changed between these two tunes" at a glance.
+const damperHistogramsA = computed(() =>
+  lapA.value ? damperHistogramsForLap(lapA.value.frames) : null
+)
+const damperHistogramsB = computed(() =>
+  lapB.value ? damperHistogramsForLap(lapB.value.frames) : null
+)
 
 // --- Sector + apex tables ------------------------------------------------
 const SECTOR_LABELS = ['S1', 'S2', 'S3']
@@ -406,6 +417,22 @@ const diffRows = computed<SetupDiffRow[]>(() => {
         subtitle="A · B"
       />
     </div>
+
+    <!-- Damper velocity histograms — A vs B per-corner envelopes. Direct
+         chassis-behavior diff between the two tunes; the histogram shape
+         is the measurement. -->
+    <section class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <SuspensionHistogram
+        :histograms="damperHistogramsA"
+        title="A · damper velocity"
+        subtitle="whole lap"
+      />
+      <SuspensionHistogram
+        :histograms="damperHistogramsB"
+        title="B · damper velocity"
+        subtitle="whole lap"
+      />
+    </section>
 
     <!-- Sector deltas + per-sector min speed (apex proxy). -->
     <section class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
