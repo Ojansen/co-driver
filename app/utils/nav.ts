@@ -23,7 +23,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Live', to: '/live', exact: true },
   { label: 'Hotlap', to: '/hotlap' },
   { label: 'Dyno', to: '/dyno' },
-  { label: 'Cars', to: '/cars' },
+  { label: 'Garage', to: '/cars' },
   { label: 'Events', to: '/events' },
   { label: 'Tune', to: '/tune' },
   { label: 'Upgrade', to: '/upgrade' },

@@ -92,10 +92,7 @@ async function confirmDelete() {
 
 <template>
   <main class="container mx-auto max-w-6xl px-6 py-10">
-    <PageHeader title="Your cars">
-      <template #eyebrow>
-        Garage
-      </template>
+    <PageHeader title="Garage">
       <template #actions>
         <UButton
           :disabled="!currentCar || currentCarInGarage || adding"
