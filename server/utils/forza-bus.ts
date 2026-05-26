@@ -36,12 +36,29 @@ export interface ForzaStatus {
   lastPacketAt: number | null
 }
 
+/**
+ * Live derived measurement, emitted by server-side rolling-window aggregators
+ * (see e.g. RollingTbPercent). Generic shape so adding a new measurement is
+ * one bus emit + one WS forward, no schema churn.
+ *
+ * `startMs` and `endMs` are game-clock timestamps that let the client anchor
+ * each reading to the same x-axis the trace strip renders against.
+ */
+export interface MeasurementEvent {
+  name: 'tb_rolling'
+  /** 0..1, or NaN when the window had no qualifying frames (e.g. no braking). */
+  value: number
+  startMs: number
+  endMs: number
+}
+
 interface ForzaEvents {
   telemetry: [Telemetry]
   debug: [DebugFrame]
   recording_state: [RecordingState]
   tune_prompt: [TunePrompt]
   forza_status: [ForzaStatus]
+  measurement: [MeasurementEvent]
 }
 
 class ForzaBus extends EventEmitter<ForzaEvents> {}

@@ -1,6 +1,20 @@
 import type { Telemetry } from '../../server/utils/decode'
-import type { DebugFrame, RecordingState, TunePrompt } from '../../server/utils/forza-bus'
+import type { DebugFrame, MeasurementEvent, RecordingState, TunePrompt } from '../../server/utils/forza-bus'
 import { TRACE_BUFFER_SIZE, pushSample, type TraceSample } from '../utils/trace'
+
+/** One reading of a rolling server-computed measurement. */
+export interface MeasurementSample {
+  /** 0..1 ratio, or NaN when the window had no qualifying frames. */
+  value: number
+  /** Game-clock ms — window start. */
+  startMs: number
+  /** Game-clock ms — window end (= "now" at emission). */
+  endMs: number
+}
+
+/** Cap recent-readings buffer per measurement. 60 s at 5 Hz = 300; leaves
+ *  headroom past the 30 s strip window for any future zoom-out. */
+const MEASUREMENT_BUFFER_SIZE = 300
 
 /**
  * Pause source for the live trace strip + DVR scrub.
@@ -11,7 +25,7 @@ import { TRACE_BUFFER_SIZE, pushSample, type TraceSample } from '../utils/trace'
 type PauseSource = 'live' | 'user' | 'game'
 
 interface ServerMessage {
-  type: 'hello' | 'telemetry' | 'debug' | 'recording_state' | 'tune_prompt' | 'forza_status' | 'error'
+  type: 'hello' | 'telemetry' | 'debug' | 'recording_state' | 'tune_prompt' | 'forza_status' | 'error' | 'measurement'
   t?: Telemetry
   d?: DebugFrame
   message?: string
@@ -31,6 +45,8 @@ interface ServerMessage {
   // forza_status fields
   connected?: boolean
   lastPacketAt?: number | null
+  // measurement
+  m?: MeasurementEvent
 }
 
 // Telemetry frames are wholesale-replaced (never mutated), and TraceSample/
@@ -56,6 +72,10 @@ const _state = {
   scrubIndex: ref<number | null>(null),
   recording: ref<RecordingState>({ state: 'idle' }),
   tunePrompt: ref<TunePrompt | null>(null),
+  // Bounded ring of recent rolling-measurement readings, keyed by name. New
+  // measurements drop in here as the server emits them; consumers read by
+  // name and render the series however they like (sparkline, badge, etc.).
+  measurements: shallowRef<{ tbRolling: MeasurementSample[] }>({ tbRolling: [] }),
   lastError: ref<string | null>(null),
   ws: null as WebSocket | null,
   refCount: 0,
@@ -79,11 +99,12 @@ function attachVisibilityListener() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       _state.suspendedForHidden = true
-      // Drop stale trace so the strip doesn't flash 10s-old data on return.
+      // Drop stale trace so the strip doesn't flash 30s-old data on return.
       // Keep `telemetry.value` so the corner panels don't blank out.
       _state.history.value = []
       _state.framesBuffer.value = []
       _state.scrubIndex.value = null
+      _state.measurements.value = { tbRolling: [] }
       const ws = _state.ws
       if (ws) {
         _state.ws = null
@@ -215,6 +236,17 @@ function connect() {
     } else if (msg.type === 'forza_status' && typeof msg.connected === 'boolean') {
       _state.forzaConnected.value = msg.connected
       _state.forzaLastPacketAt.value = msg.lastPacketAt ?? null
+    } else if (msg.type === 'measurement' && msg.m) {
+      // Bounded append per measurement name. shallowRef + triggerRef so the
+      // array mutation triggers reactivity exactly once per push.
+      const m = msg.m
+      const bucket = _state.measurements.value
+      if (m.name === 'tb_rolling') {
+        const ring = bucket.tbRolling
+        ring.push({ value: m.value, startMs: m.startMs, endMs: m.endMs })
+        while (ring.length > MEASUREMENT_BUFFER_SIZE) ring.shift()
+        triggerRef(_state.measurements)
+      }
     } else if (msg.type === 'error' && msg.message) {
       _state.lastError.value = msg.message
     }
@@ -287,6 +319,7 @@ export function useTelemetry() {
     framesBuffer: _state.framesBuffer,
     scrubIndex: _state.scrubIndex,
     pauseSource: _state.pauseSource,
+    measurements: _state.measurements,
     paused,
     displayFrame,
     setScrub,

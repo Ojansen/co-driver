@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { INPUT_TRACE_LINES } from '~/utils/trace-lines'
+import { TRACE_BUFFER_SIZE } from '~/utils/trace'
 
 definePageMeta({
   // Drop the site header on narrow viewports so a phone propped next to the
@@ -18,8 +19,23 @@ const {
   pauseSource,
   pauseManual,
   resume,
-  setScrub
+  setScrub,
+  measurements
 } = useTelemetry()
+
+// Right-edge of the trace strip in game-clock ms. Tracks the latest sample
+// in `history` (same source uPlot reads dataMax from), so the measurement
+// strip below freezes alongside the trace strip on pause / scrub.
+const tracesRightEdgeT = computed<number>(() => {
+  const h = history.value
+  return h.length > 0 ? (h[h.length - 1]?.t ?? 0) : 0
+})
+
+const TRACE_WINDOW_MS = (TRACE_BUFFER_SIZE / 60) * 1000
+
+function fmtTbPct(v: number): string {
+  return Math.round(v * 100) + '%'
+}
 
 // Keep the screen awake while telemetry is flowing — phone-as-sidecar use
 // case. Silent if unsupported (iOS Safari < 16.4). Gated on hasReceivedFrame
@@ -135,7 +151,7 @@ const dvrSeconds = computed<number | null>(() => {
         class="flex w-full items-center justify-between border-y border-zinc-800 bg-zinc-950/40 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-400 transition-colors hover:bg-zinc-900/60 hover:text-zinc-200"
         @click="toggleTrace"
       >
-        <span>traces · last 10 s</span>
+        <span>traces · last 30 s</span>
         <UIcon
           name="i-lucide-chevron-up"
           class="h-3.5 w-3.5"
@@ -148,13 +164,21 @@ const dvrSeconds = computed<number | null>(() => {
         <TraceStrip
           :history="history"
           :lines="INPUT_TRACE_LINES"
-          label="traces · last 10 s"
+          label="traces · last 30 s"
           :paused="paused"
           :scrubbable="true"
           :scrub-index="scrubIndex"
           :buffer-length="history.length"
           @toggle-pause="onTogglePause"
           @scrub="setScrub"
+        />
+        <MeasurementStrip
+          :series="measurements.tbRolling"
+          :window-ms="TRACE_WINDOW_MS"
+          label="TB% · 30 s"
+          color="#a78bfa"
+          :fmt="fmtTbPct"
+          :latest-t="tracesRightEdgeT"
         />
         <button
           v-if="isCompact"

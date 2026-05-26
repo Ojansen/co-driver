@@ -1,5 +1,8 @@
-import { forzaBus, getForzaStatus, type DebugFrame, type ForzaStatus, type RecordingState, type TunePrompt } from '../utils/forza-bus'
+import { forzaBus, getForzaStatus, type DebugFrame, type ForzaStatus, type MeasurementEvent, type RecordingState, type TunePrompt } from '../utils/forza-bus'
 import { recorder } from '../utils/recorder'
+// Side-effect import: instantiating the singleton subscribes it to the bus
+// so rolling TB% starts computing as soon as any WS client connects.
+import '../utils/rolling-tb-percent'
 import type { Telemetry } from '../utils/decode'
 
 interface StartMessage {
@@ -54,12 +57,14 @@ export default defineWebSocketHandler({
     const onRecordingState = (s: RecordingState) => safeSend({ type: 'recording_state', ...s })
     const onTunePrompt = (p: TunePrompt) => safeSend({ type: 'tune_prompt', ...p })
     const onForzaStatus = (s: ForzaStatus) => safeSend({ type: 'forza_status', ...s })
+    const onMeasurement = (m: MeasurementEvent) => safeSend({ type: 'measurement', m })
 
     forzaBus.on('telemetry', onTelemetry)
     forzaBus.on('debug', onDebug)
     forzaBus.on('recording_state', onRecordingState)
     forzaBus.on('tune_prompt', onTunePrompt)
     forzaBus.on('forza_status', onForzaStatus)
+    forzaBus.on('measurement', onMeasurement)
 
     ;(peer as unknown as { _cleanup: () => void })._cleanup = () => {
       forzaBus.off('telemetry', onTelemetry)
@@ -67,6 +72,7 @@ export default defineWebSocketHandler({
       forzaBus.off('recording_state', onRecordingState)
       forzaBus.off('tune_prompt', onTunePrompt)
       forzaBus.off('forza_status', onForzaStatus)
+      forzaBus.off('measurement', onMeasurement)
     }
   },
   async message(peer, message) {

@@ -43,7 +43,7 @@ const emit = defineEmits<{
 }>()
 
 const STRIP_HEIGHT = 160
-const WINDOW_SECONDS = TRACE_BUFFER_SIZE / 60 // 10 s @ 60 Hz fan-out
+const WINDOW_SECONDS = TRACE_BUFFER_SIZE / 60 // 30 s @ 60 Hz fan-out
 
 // --- uPlot data assembly --------------------------------------------------
 // uPlot wants column-major aligned data: [xs, ys_line0, ys_line1, …]. To
