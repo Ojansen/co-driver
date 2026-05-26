@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { BuildSettings } from '~/utils/build-fields'
 import type { TuneSettings } from '~/utils/tune-fields'
+import { EVENT_TYPE_LABELS, type EventType } from '~/utils/event-types'
 
 const route = useRoute()
 
@@ -65,6 +66,27 @@ const drivetrain = computed<string | null>(() => {
 })
 
 const existingTuneNames = computed(() => tunes.value?.map(t => t.name) ?? [])
+
+// --- Sessions that used this build ----------------------------------------
+
+interface BuildSessionRow {
+  sessionId: number
+  eventId: number
+  eventType: EventType
+  eventName: string
+  startedAt: string
+  endedAt: string | null
+  piAtStart: number
+  tuneLabel: string | null
+  lapCount: number
+  bestLapMs: number | null
+  bestLapId: number | null
+}
+
+const { data: sessions } = await useFetch<BuildSessionRow[]>(
+  `/api/builds/${buildId}/sessions`,
+  { default: () => [] }
+)
 
 const newTuneName = ref('')
 const creating = ref(false)
@@ -339,6 +361,63 @@ async function confirmDeleteTune() {
         class="card-dashed p-6 text-center font-mono text-sm text-zinc-500"
       >
         No tunes for this build yet. Create one above.
+      </div>
+    </section>
+
+    <section class="mb-4">
+      <div class="mb-3 flex items-baseline justify-between font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-500">
+        <span>Sessions using this build</span>
+        <span class="text-zinc-600 normal-case tracking-normal">{{ sessions?.length ?? 0 }} total</span>
+      </div>
+
+      <ul
+        v-if="sessions && sessions.length"
+        class="space-y-2"
+      >
+        <li
+          v-for="session in sessions"
+          :key="session.sessionId"
+        >
+          <NuxtLink
+            :to="`/events/${session.eventType}/${session.eventId}/${session.sessionId}`"
+            class="group flex items-center justify-between gap-3 card p-4 transition-colors hover:border-zinc-600 hover:bg-zinc-900/60"
+          >
+            <div class="min-w-0 font-mono">
+              <div class="truncate text-zinc-100">
+                {{ session.eventName }}
+              </div>
+              <div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                <span class="rounded-sm border border-zinc-800 px-1.5 py-0.5 text-zinc-400">
+                  {{ EVENT_TYPE_LABELS[session.eventType] }}
+                </span>
+                <span>{{ session.lapCount }} lap{{ session.lapCount === 1 ? '' : 's' }}</span>
+                <span class="text-zinc-700">·</span>
+                <span>{{ relativeDate(session.startedAt) }}</span>
+                <span class="text-zinc-700">·</span>
+                <span>PI {{ session.piAtStart }}</span>
+                <template v-if="session.tuneLabel">
+                  <span class="text-zinc-700">·</span>
+                  <span class="text-zinc-400 normal-case tracking-normal">{{ session.tuneLabel }}</span>
+                </template>
+              </div>
+            </div>
+            <div class="shrink-0 text-right font-mono">
+              <div class="text-zinc-100">
+                {{ session.bestLapMs != null ? formatLap(session.bestLapMs) : '—' }}
+              </div>
+              <div class="mt-0.5 text-[9px] uppercase tracking-[0.2em] text-zinc-600 group-hover:text-zinc-400">
+                best lap
+              </div>
+            </div>
+          </NuxtLink>
+        </li>
+      </ul>
+      <div
+        v-else
+        class="card-dashed p-6 text-center font-mono text-sm text-zinc-500"
+      >
+        No sessions yet. They appear here once you record a lap in Forza while
+        driving this build.
       </div>
     </section>
 
