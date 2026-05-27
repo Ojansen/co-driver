@@ -34,9 +34,14 @@ export interface TrailBrakingOptions {
   minSustainFrames?: number
 }
 
+/** Minimum brake input (0..1) counted as "braking" — the TB% denominator and
+ *  the detector's brake gate share this. Exported so consumers that count
+ *  braking frames themselves stay aligned with the detector. */
+export const TRAIL_BRAKE_MIN = 0.10
+
 const DEFAULTS: Required<TrailBrakingOptions> = {
   lookbackMs: 500,
-  brakeMin: 0.10,
+  brakeMin: TRAIL_BRAKE_MIN,
   steerMin: 0.15,
   brakeDecayDelta: 0.10,
   minSustainFrames: 6

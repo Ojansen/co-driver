@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { MeasurementBand } from '../../server/utils/forza-bus'
 import type { MeasurementSample } from '~/composables/useTelemetry'
 
 /**
@@ -18,7 +19,7 @@ import type { MeasurementSample } from '~/composables/useTelemetry'
  */
 
 export interface MeasurementSeries {
-  /** Recent readings in chronological order. */
+  /** Recent readings in chronological order. Drives the line + the right-edge pill. */
   samples: MeasurementSample[]
   /** Line stroke and pill colour. */
   color: string
@@ -26,6 +27,10 @@ export interface MeasurementSeries {
   pillLabel: string
   /** Formatter applied to the most recent value for the right-edge pill. */
   fmt: (v: number) => string
+  /** When present, the series renders as discrete shaded bands (one rect per
+   *  predicate-true stretch) instead of a continuous line — e.g. TB% episodes.
+   *  The pill still reads the latest `samples` value. */
+  bands?: MeasurementBand[]
 }
 
 const props = defineProps<{
@@ -46,6 +51,7 @@ interface SeriesView {
   color: string
   pillLabel: string
   pathD: string
+  rects: Array<{ x: number, width: number }>
   latestText: string
 }
 
@@ -55,30 +61,42 @@ const seriesViews = computed<SeriesView[]>(() => {
   const startT = endT - windowMs
   return props.series.map((s) => {
     let pathD = ''
-    if (s.samples.length > 0 && windowMs > 0 && endT > 0) {
-      let needMove = true
-      for (let i = 0; i < s.samples.length; i++) {
-        const sample = s.samples[i]!
-        if (sample.endMs < startT || sample.endMs > endT) {
-          needMove = true
-          continue
+    const rects: Array<{ x: number, width: number }> = []
+    if (windowMs > 0 && endT > 0) {
+      if (s.bands) {
+        // Band mode: one rect per predicate-true stretch, clamped to the plot.
+        for (const b of s.bands) {
+          if (b.endMs < startT || b.startMs > endT) continue
+          const x0 = Math.max(0, ((b.startMs - startT) / windowMs) * VIEW_WIDTH)
+          const x1 = Math.min(VIEW_WIDTH, ((b.endMs - startT) / windowMs) * VIEW_WIDTH)
+          if (x1 <= x0) continue
+          rects.push({ x: x0, width: x1 - x0 })
         }
-        if (Number.isNaN(sample.value)) {
-          // Break the path on undefined readings so the line doesn't
-          // pretend to be continuous through a gap.
-          needMove = true
-          continue
+      } else {
+        let needMove = true
+        for (let i = 0; i < s.samples.length; i++) {
+          const sample = s.samples[i]!
+          if (sample.endMs < startT || sample.endMs > endT) {
+            needMove = true
+            continue
+          }
+          if (Number.isNaN(sample.value)) {
+            // Break the path on undefined readings so the line doesn't
+            // pretend to be continuous through a gap.
+            needMove = true
+            continue
+          }
+          const x = ((sample.endMs - startT) / windowMs) * VIEW_WIDTH
+          const v = Math.max(0, Math.min(1, sample.value))
+          const y = (1 - v) * STRIP_HEIGHT
+          pathD += `${needMove ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)} `
+          needMove = false
         }
-        const x = ((sample.endMs - startT) / windowMs) * VIEW_WIDTH
-        const v = Math.max(0, Math.min(1, sample.value))
-        const y = (1 - v) * STRIP_HEIGHT
-        pathD += `${needMove ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)} `
-        needMove = false
       }
     }
     const latest = s.samples.length > 0 ? (s.samples[s.samples.length - 1] ?? null) : null
     const latestText = !latest || Number.isNaN(latest.value) ? '—' : s.fmt(latest.value)
-    return { color: s.color, pillLabel: s.pillLabel, pathD, latestText }
+    return { color: s.color, pillLabel: s.pillLabel, pathD, rects, latestText }
   })
 })
 
@@ -132,6 +150,23 @@ const windowSeconds = computed<number>(() => Math.round(props.windowMs / 1000))
           stroke="#3f3f46"
           stroke-width="0.5"
         />
+        <!-- Band mode: one shaded rect per predicate-true stretch. -->
+        <template
+          v-for="(v, i) in seriesViews"
+          :key="`bands-${i}`"
+        >
+          <rect
+            v-for="(r, j) in v.rects"
+            :key="j"
+            :x="r.x"
+            :y="0"
+            :width="r.width"
+            :height="STRIP_HEIGHT"
+            :fill="v.color"
+            fill-opacity="0.35"
+          />
+        </template>
+        <!-- Line mode: continuous sparkline. -->
         <path
           v-for="(v, i) in seriesViews"
           :key="i"

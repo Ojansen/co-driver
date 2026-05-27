@@ -138,4 +138,41 @@ describe('RollingTbPercent', () => {
     expect(last.value).toBeGreaterThan(0)
     expect(last.value).toBeLessThanOrEqual(1)
   })
+
+  it('emits a trail-braking band spanning the decay phase, in window timestamps', () => {
+    const { measurements } = fresh()
+    // Same classic trail-brake shape as above: brake decays 0.8 → 0.1 while
+    // steer ramps over frames 60..119 (timestamps 960..1904 ms).
+    for (let i = 0; i < 120; i++) {
+      let brake: number
+      let steer: number
+      if (i < 60) {
+        brake = 0.8
+        steer = 0
+      } else {
+        const tFrac = (i - 60) / 60
+        brake = 0.8 - tFrac * 0.7
+        steer = tFrac * 0.4
+      }
+      forzaBus.emit('telemetry', makeFrame({ brake, steer, timestampMs: i * 16 }))
+    }
+    const last = measurements[measurements.length - 1]!
+    expect(last.bands).toBeDefined()
+    expect(last.bands!.length).toBeGreaterThanOrEqual(1)
+    // The band sits within the decay phase (≥ 960 ms) and inside the window.
+    const b = last.bands![0]!
+    expect(b.startMs).toBeGreaterThanOrEqual(960)
+    expect(b.endMs).toBeLessThanOrEqual(119 * 16)
+    expect(b.endMs).toBeGreaterThan(b.startMs)
+  })
+
+  it('emits no bands when the window has no qualifying trail-braking', () => {
+    const { measurements } = fresh()
+    // Steady straight-line braking, no steer → never trail-braking.
+    for (let i = 0; i < 12; i++) {
+      forzaBus.emit('telemetry', makeFrame({ brake: 0.8, steer: 0, timestampMs: i * 16 }))
+    }
+    expect(measurements).toHaveLength(1)
+    expect(measurements[0]!.bands).toEqual([])
+  })
 })

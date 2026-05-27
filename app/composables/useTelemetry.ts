@@ -1,5 +1,6 @@
 import type { Telemetry } from '../../server/utils/decode'
-import type { DebugFrame, MeasurementEvent, RecordingState, TunePrompt } from '../../server/utils/forza-bus'
+import type { DebugFrame, MeasurementBand, MeasurementEvent, RecordingState, TunePrompt } from '../../server/utils/forza-bus'
+import { mergeBands } from '../utils/measurement-bands'
 import { TRACE_BUFFER_SIZE, pushSample, type TraceSample } from '../utils/trace'
 
 /** One reading of a rolling server-computed measurement. */
@@ -15,6 +16,10 @@ export interface MeasurementSample {
 /** Cap recent-readings buffer per measurement. 60 s at 5 Hz = 300; leaves
  *  headroom past the 30 s strip window for any future zoom-out. */
 const MEASUREMENT_BUFFER_SIZE = 300
+
+/** Window past which client-side bands are dropped — matches the server's
+ *  rolling window so a band ages out once it scrolls off the strip. */
+const MEASUREMENT_WINDOW_MS = 30_000
 
 /**
  * Pause source for the live trace strip + DVR scrub.
@@ -78,7 +83,11 @@ const _state = {
   measurements: shallowRef<{
     tbRolling: MeasurementSample[]
     timeCoast: MeasurementSample[]
-  }>({ tbRolling: [], timeCoast: [] }),
+    pedalOverlap: MeasurementSample[]
+    // Discrete trail-braking bands for the TB% strip (rect render). Deduped by
+    // startMs as the server re-sends in-window bands each emit.
+    tbBands: MeasurementBand[]
+  }>({ tbRolling: [], timeCoast: [], pedalOverlap: [], tbBands: [] }),
   lastError: ref<string | null>(null),
   ws: null as WebSocket | null,
   refCount: 0,
@@ -107,7 +116,7 @@ function attachVisibilityListener() {
       _state.history.value = []
       _state.framesBuffer.value = []
       _state.scrubIndex.value = null
-      _state.measurements.value = { tbRolling: [], timeCoast: [] }
+      _state.measurements.value = { tbRolling: [], timeCoast: [], pedalOverlap: [], tbBands: [] }
       const ws = _state.ws
       if (ws) {
         _state.ws = null
@@ -247,9 +256,16 @@ function connect() {
       let ring: MeasurementSample[] | null = null
       if (m.name === 'tb_rolling') ring = bucket.tbRolling
       else if (m.name === 'time_coast') ring = bucket.timeCoast
+      else if (m.name === 'pedal_overlap') ring = bucket.pedalOverlap
       if (ring) {
         ring.push({ value: m.value, startMs: m.startMs, endMs: m.endMs })
         while (ring.length > MEASUREMENT_BUFFER_SIZE) ring.shift()
+      }
+      // Dedupe + age out TB% bands alongside the scalar reading.
+      if (m.name === 'tb_rolling' && m.bands) {
+        bucket.tbBands = mergeBands(bucket.tbBands, m.bands, m.endMs - MEASUREMENT_WINDOW_MS)
+      }
+      if (ring || (m.name === 'tb_rolling' && m.bands)) {
         triggerRef(_state.measurements)
       }
     } else if (msg.type === 'error' && msg.message) {

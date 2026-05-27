@@ -173,7 +173,7 @@ const dvrSeconds = computed<number | null>(() => {
           @scrub="setScrub"
         />
         <MeasurementStrip
-          :series="[{ samples: measurements.tbRolling, color: '#a78bfa', pillLabel: 'TB%', fmt: fmtPct }]"
+          :series="[{ samples: measurements.tbRolling, bands: measurements.tbBands, color: '#a78bfa', pillLabel: 'TB%', fmt: fmtPct }]"
           :window-ms="TRACE_WINDOW_MS"
           label="TB% · 30 s"
           :latest-t="tracesRightEdgeT"
@@ -182,6 +182,12 @@ const dvrSeconds = computed<number | null>(() => {
           :series="[{ samples: measurements.timeCoast, color: '#a1a1aa', pillLabel: 'CST', fmt: fmtPct }]"
           :window-ms="TRACE_WINDOW_MS"
           label="coast · 30 s"
+          :latest-t="tracesRightEdgeT"
+        />
+        <MeasurementStrip
+          :series="[{ samples: measurements.pedalOverlap, color: '#fb923c', pillLabel: 'OVL', fmt: fmtPct }]"
+          :window-ms="TRACE_WINDOW_MS"
+          label="pedal overlap · 30 s"
           :latest-t="tracesRightEdgeT"
         />
         <button

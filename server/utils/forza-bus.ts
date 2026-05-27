@@ -37,6 +37,18 @@ export interface ForzaStatus {
 }
 
 /**
+ * A contiguous stretch where a measurement's underlying predicate held — e.g.
+ * one trail-braking band. Timestamps are game-clock ms, matching the same
+ * x-axis the trace strip renders against. The full set of bands inside the
+ * rolling window is re-sent on every emit (cheap — a handful per window —
+ * and robust to dropped frames); the client dedupes by `startMs`.
+ */
+export interface MeasurementBand {
+  startMs: number
+  endMs: number
+}
+
+/**
  * Live derived measurement, emitted by server-side rolling-window aggregators
  * (see e.g. RollingTbPercent). Generic shape so adding a new measurement is
  * one bus emit + one WS forward, no schema churn.
@@ -45,11 +57,14 @@ export interface ForzaStatus {
  * each reading to the same x-axis the trace strip renders against.
  */
 export interface MeasurementEvent {
-  name: 'tb_rolling' | 'time_coast'
+  name: 'tb_rolling' | 'time_coast' | 'pedal_overlap'
   /** 0..1, or NaN when the window had no qualifying frames (e.g. no braking). */
   value: number
   startMs: number
   endMs: number
+  /** Discrete predicate-true bands inside the window. Only TB% populates this;
+   *  the line measurements omit it and render as a continuous sparkline. */
+  bands?: MeasurementBand[]
 }
 
 interface ForzaEvents {

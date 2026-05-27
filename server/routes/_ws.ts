@@ -5,6 +5,7 @@ import { recorder } from '../utils/recorder'
 // connects.
 import '../utils/rolling-tb-percent'
 import '../utils/rolling-coast-time'
+import '../utils/rolling-pedal-overlap'
 import type { Telemetry } from '../utils/decode'
 
 interface StartMessage {
