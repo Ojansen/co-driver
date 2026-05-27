@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { gearLabel } from '~/utils/tuning'
-
-const { unitLabel, prefs, format } = useUnits()
+const { format } = useUnits()
+const { prefs: displayPrefs } = useDisplayPrefs()
 
 const props = defineProps<{
   rpm: number
@@ -13,6 +12,8 @@ const props = defineProps<{
   brake: number
   steer: number
   boost: number
+  /** whether the car produces boost (forced induction) — hides the boost gauge on NA cars */
+  hasBoost: boolean
   /** engine power from telemetry, in watts */
   power: number
   /** body-frame longitudinal acceleration (m/s²) — +ve forward */
@@ -26,29 +27,6 @@ const props = defineProps<{
   /** yaw rate, rad/s — sign matches steer direction */
   yawRate: number
 }>()
-
-const speedValue = computed(() => {
-  if (prefs.value.speed === 'mph') return Math.round(props.speedKmh * 0.621371)
-  return Math.round(props.speedKmh)
-})
-
-const rpmPct = computed(() => {
-  if (props.rpmMax <= 0) return 0
-  return Math.min(100, Math.max(0, (props.rpm / props.rpmMax) * 100))
-})
-
-// Redline shading from ~85% upwards
-const rpmRedlinePct = computed(() => {
-  if (props.rpmMax <= 0) return 100
-  return Math.max(0, Math.min(100, ((props.rpmMax * 0.85) / props.rpmMax) * 100))
-})
-
-const rpmBarColor = computed(() => {
-  const r = props.rpm / Math.max(props.rpmMax, 1)
-  if (r > 0.95) return '#ef4444'
-  if (r > 0.85) return '#f59e0b'
-  return '#22c55e'
-})
 
 const steerPct = computed(() => (props.steer + 1) * 50)
 
@@ -99,90 +77,25 @@ function signedFixed(v: number, digits: number): string {
 
 <template>
   <div class="flex h-full flex-col items-stretch justify-between panel p-3 font-mono text-zinc-100 backdrop-blur sm:p-5">
-    <!-- Top: gear + speed -->
-    <div class="flex items-start justify-between">
-      <div>
-        <NuxtLink
-          to="/tune/gearing"
-          class="group inline-flex items-center gap-1 text-xs uppercase tracking-[0.2em] text-zinc-400 transition-colors hover:text-green-300"
-        >
-          <span>GEAR</span>
-          <UIcon
-            name="i-lucide-arrow-up-right"
-            class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-70"
-          />
-        </NuxtLink>
-        <div class="text-6xl leading-none font-light tabular-nums sm:text-8xl">
-          {{ gearLabel(gear) }}
-        </div>
-      </div>
-      <div class="text-right">
-        <div class="text-xs uppercase tracking-[0.2em] text-zinc-400">
-          {{ unitLabel.speed }}
-        </div>
-        <div class="text-5xl leading-none font-light tabular-nums sm:text-6xl">
-          {{ speedValue }}
-        </div>
-      </div>
-    </div>
-
-    <!-- Middle: RPM linear bar -->
-    <div class="mt-5">
-      <div class="flex justify-between text-sm text-zinc-400">
-        <NuxtLink
-          to="/tune/gearing"
-          class="group inline-flex items-center gap-1 transition-colors hover:text-green-300"
-        >
-          <span>RPM</span>
-          <UIcon
-            name="i-lucide-arrow-up-right"
-            class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-70"
-          />
-        </NuxtLink>
-        <span class="tabular-nums text-base text-zinc-200">{{ Math.round(rpm) }} <span class="text-zinc-500">/ {{ Math.round(rpmMax) }}</span></span>
-      </div>
-      <svg
-        viewBox="0 0 100 10"
-        class="mt-1 w-full"
-        preserveAspectRatio="none"
-      >
-        <rect
-          x="0"
-          y="0"
-          width="100"
-          height="10"
-          rx="1"
-          fill="#27272a"
-        />
-        <!-- redline zone shading -->
-        <rect
-          :x="rpmRedlinePct"
-          y="0"
-          :width="100 - rpmRedlinePct"
-          height="10"
-          fill="#7f1d1d"
-          opacity="0.4"
-        />
-        <!-- current rpm -->
-        <rect
-          x="0"
-          y="0"
-          :width="rpmPct"
-          height="10"
-          rx="1"
-          :fill="rpmBarColor"
-        />
-        <!-- 85% tick -->
-        <line
-          :x1="rpmRedlinePct"
-          y1="0"
-          :x2="rpmRedlinePct"
-          y2="10"
-          stroke="#52525b"
-          stroke-width="0.5"
-        />
-      </svg>
-    </div>
+    <!-- Hero: instrument cluster (style chosen in Settings) -->
+    <ClusterTwinDial
+      v-if="displayPrefs.cluster === 'twin'"
+      :rpm="rpm"
+      :rpm-max="rpmMax"
+      :gear="gear"
+      :speed-kmh="speedKmh"
+      :boost="boost"
+      :has-boost="hasBoost"
+    />
+    <ClusterDigitalArc
+      v-else
+      :rpm="rpm"
+      :rpm-max="rpmMax"
+      :gear="gear"
+      :speed-kmh="speedKmh"
+      :boost="boost"
+      :has-boost="hasBoost"
+    />
 
     <!-- Inputs strip -->
     <div class="mt-5 space-y-2.5">
@@ -433,10 +346,6 @@ function signedFixed(v: number, digits: number): string {
         <div class="flex items-center justify-between text-zinc-400">
           <span>POWER</span>
           <span class="text-lg tabular-nums text-zinc-100">{{ format.power(power / 1000) }}</span>
-        </div>
-        <div class="flex items-center justify-between text-zinc-400">
-          <span>BOOST</span>
-          <span class="text-lg tabular-nums text-zinc-100">{{ format.pressure(boost) }}</span>
         </div>
       </div>
     </div>

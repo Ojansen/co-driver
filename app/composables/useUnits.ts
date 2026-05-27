@@ -89,9 +89,9 @@ const KW_TO_PS = 1.35962
 const HP_TO_PS = 1.01387
 const NM_TO_LBFT = 0.737562
 const KG_TO_LB = 2.20462
-// Forza reports boost in atmospheres relative to ambient.
-const ATM_TO_BAR = 1.01325
-const ATM_TO_PSI = 14.6959
+// Forza reports boost as gauge pressure in PSI relative to ambient (negative
+// under manifold vacuum). bar is the SI equivalent; atm is psi / 14.6959.
+const PSI_TO_ATM = 1 / 14.6959
 
 function cToF(c: number): number {
   return c * 9 / 5 + 32
@@ -236,11 +236,11 @@ export function useUnits() {
       if (prefs.value.mass === 'lb') return `${Math.round(kg * KG_TO_LB)} lb`
       return `${Math.round(kg)} kg`
     },
-    /** Engine boost. Input is atmospheres relative to ambient (Forza native). */
-    boost(atm: number): string {
-      if (prefs.value.boost === 'psi') return `${(atm * ATM_TO_PSI).toFixed(1)} psi`
-      if (prefs.value.boost === 'atm') return `${atm.toFixed(2)} atm`
-      return `${(atm * ATM_TO_BAR).toFixed(2)} bar`
+    /** Engine boost. Input is gauge PSI relative to ambient (Forza native). */
+    boost(psi: number): string {
+      if (prefs.value.boost === 'atm') return `${(psi * PSI_TO_ATM).toFixed(2)} atm`
+      if (prefs.value.boost === 'bar') return `${(psi * PSI_TO_BAR).toFixed(2)} bar`
+      return `${psi.toFixed(1)} psi`
     }
   }
 
@@ -286,6 +286,12 @@ export function useUnits() {
     mass(kg: number): number {
       if (prefs.value.mass === 'lb') return Math.round(kg * KG_TO_LB)
       return Math.round(kg)
+    },
+    /** Engine boost. Input is gauge PSI relative to ambient (Forza native). */
+    boost(psi: number): number {
+      if (prefs.value.boost === 'atm') return Number((psi * PSI_TO_ATM).toFixed(2))
+      if (prefs.value.boost === 'bar') return Number((psi * PSI_TO_BAR).toFixed(2))
+      return Number(psi.toFixed(1))
     }
   }
 

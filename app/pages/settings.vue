@@ -1,9 +1,20 @@
 <script setup lang="ts">
 import type { UnitPrefs } from '~/composables/useUnits'
+import type { ClusterStyle } from '~/composables/useDisplayPrefs'
 
 useHead({ title: 'Settings · co-driver' })
 
 const { prefs, applyPreset } = useUnits()
+const { prefs: displayPrefs } = useDisplayPrefs()
+
+const CLUSTER_OPTIONS: { value: ClusterStyle, label: string, hint: string }[] = [
+  { value: 'twin', label: 'Twin dial', hint: 'analog · tach + speedo' },
+  { value: 'digital', label: 'Rev arc', hint: 'digital · top bar + digits' }
+]
+
+function setCluster(value: ClusterStyle) {
+  displayPrefs.value = { ...displayPrefs.value, cluster: value }
+}
 
 interface Category {
   key: keyof UnitPrefs
@@ -107,7 +118,7 @@ function setValue<K extends keyof UnitPrefs>(key: K, value: UnitPrefs[K]) {
   <main class="container mx-auto max-w-3xl px-6 py-10">
     <PageHeader title="Settings">
       <template #eyebrow>
-        <span>Units of measurement</span>
+        <span>Display &amp; units</span>
       </template>
       <template #intro>
         Pick how values are displayed across telemetry panels and tune forms.
@@ -115,6 +126,33 @@ function setValue<K extends keyof UnitPrefs>(key: K, value: UnitPrefs[K]) {
         kW, Nm, meters) — only display and form-input conversion changes.
       </template>
     </PageHeader>
+
+    <section class="card mb-6 p-4 font-mono">
+      <div class="mb-3 text-[10px] uppercase tracking-[0.3em] text-zinc-500">
+        Instrument cluster
+      </div>
+      <div
+        role="radiogroup"
+        aria-label="Instrument cluster style"
+        class="flex flex-wrap gap-1.5"
+      >
+        <button
+          v-for="opt in CLUSTER_OPTIONS"
+          :key="opt.value"
+          type="button"
+          role="radio"
+          :aria-checked="displayPrefs.cluster === opt.value"
+          class="rounded-sm border px-2.5 py-1 text-xs tabular-nums transition-colors"
+          :class="displayPrefs.cluster === opt.value
+            ? 'border-green-500/60 bg-green-500/10 text-green-200'
+            : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100'"
+          @click="setCluster(opt.value)"
+        >
+          <span>{{ opt.label }}</span>
+          <span class="ml-1.5 text-[10px] uppercase tracking-[0.15em] text-zinc-500">{{ opt.hint }}</span>
+        </button>
+      </div>
+    </section>
 
     <section class="card mb-6 p-4 font-mono">
       <div class="mb-3 text-[10px] uppercase tracking-[0.3em] text-zinc-500">

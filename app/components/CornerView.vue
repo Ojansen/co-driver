@@ -72,6 +72,23 @@ watch(() => props.frame, (f) => {
   }
   prevSusp.value = cur
 })
+
+// Whether to show the boost gauge. Forza telemetry doesn't expose aspiration,
+// so we latch once observed boost (gauge PSI) crosses a small threshold and
+// reset on a car change: an NA car never exceeds ~0 psi (it only pulls vacuum,
+// i.e. negative), while a forced-induction car trips it the first time it
+// spools. Validated against session 22 (NA car, peak boost 0.0 psi).
+const BOOST_DETECT_PSI = 0.5
+const hasBoost = ref(false)
+let boostCar: number | null = null
+watch(() => props.frame, (f) => {
+  if (!f) return
+  if (f.car.ordinal !== boostCar) {
+    boostCar = f.car.ordinal
+    hasBoost.value = false
+  }
+  if (f.boost > BOOST_DETECT_PSI) hasBoost.value = true
+})
 </script>
 
 <template>
@@ -103,6 +120,7 @@ watch(() => props.frame, (f) => {
       :brake="frame?.brake ?? 0"
       :steer="frame?.steer ?? 0"
       :boost="frame?.boost ?? 0"
+      :has-boost="hasBoost"
       :power="frame?.power ?? 0"
       :accel-long="frame?.acceleration.z ?? 0"
       :accel-lat="frame?.acceleration.x ?? 0"
