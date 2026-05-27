@@ -11,7 +11,7 @@
  * `Telemetry` model.
  */
 
-export type GameId = 'fh6' | 'fm'
+export type GameId = 'fh6' | 'fh5' | 'fm'
 
 /**
  * Feature areas that vary by game. The tuning stack (builds, tunes, events,
@@ -40,6 +40,15 @@ export const GAMES: readonly GameDef[] = [
     label: 'Forza Horizon 6',
     telemetry: true,
     capabilities: { tuning: true }
+  },
+  {
+    id: 'fh5',
+    label: 'Forza Horizon 5',
+    telemetry: true,
+    // Telemetry/analysis-first. The tuning stack is FH6-calibrated (diff
+    // ranges, caster, aero-balance slider, spring-slider display quirk); FH5's
+    // conventions differ, so tuning stays off until verified against FH5.
+    capabilities: { tuning: false }
   },
   {
     id: 'fm',

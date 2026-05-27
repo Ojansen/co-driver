@@ -1,5 +1,6 @@
 import type { GameId } from '../../shared/games'
 import { DEFAULT_GAME_ID, isGameId } from '../../shared/games'
+import { fh5Adapter } from './fh5'
 import { fh6Adapter } from './fh6'
 import type { TelemetryAdapter } from './types'
 
@@ -11,7 +12,8 @@ export type { TelemetryAdapter } from './types'
  * selectable (frontend) before its adapter lands (`telemetry: false`).
  */
 const ADAPTERS: Partial<Record<GameId, TelemetryAdapter>> = {
-  fh6: fh6Adapter
+  fh6: fh6Adapter,
+  fh5: fh5Adapter
 }
 
 /**
