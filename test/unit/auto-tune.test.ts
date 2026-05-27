@@ -241,9 +241,9 @@ describe('computeAutoTune — required-field gating', () => {
     const rwd = computeAutoTune({ build: { ...RWD_S2_BUILD, aero: 'both' }, dials: { ...dials, balance: 'neutral' } }).tune
     const awd = computeAutoTune({ build: { ...AWD_BUILD, aero: 'both' }, dials: { ...dials, balance: 'neutral' } }).tune
     const balance = (f: number, r: number) => f / (f + r)
-    expect(balance(fwd.aeroFront as number, fwd.aeroRear as number)).toBeCloseTo(0.50, 1)
-    expect(balance(rwd.aeroFront as number, rwd.aeroRear as number)).toBeCloseTo(0.52, 1)
-    expect(balance(awd.aeroFront as number, awd.aeroRear as number)).toBeCloseTo(0.42, 1)
+    expect(balance(fwd.aeroFront as number, fwd.aeroRear as number)).toBeCloseTo(0.43, 1)
+    expect(balance(rwd.aeroFront as number, rwd.aeroRear as number)).toBeCloseTo(0.40, 1)
+    expect(balance(awd.aeroFront as number, awd.aeroRear as number)).toBeCloseTo(0.43, 1)
   })
 
   it('keeps aero magnitudes below the lowest known race-kit cap (~110 / ~220 lb)', () => {
@@ -327,8 +327,9 @@ describe('computeAutoTune — FH6 slider precision and ranges', () => {
 
   it('emits ARB at 0.1 step within FH6 1.0–65.0', () => {
     const soft = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, stiffness: 'soft' } }).tune
-    // arbFront base 30 * 0.85 * (1 + 0.1·1) = 28.05 → 28.1
-    expect(soft.arbFront).toBeCloseTo(28.1, 5)
+    // RWD 48F front baseline = 22 + (48 − 50) × 1.0 = 20.
+    // soft + tight: 20 × 0.85 × (1 + 0.1·1) = 18.7
+    expect(soft.arbFront).toBeCloseTo(18.7, 5)
     expect(soft.arbFront).toBeGreaterThanOrEqual(1)
     expect(soft.arbFront).toBeLessThanOrEqual(65)
   })
@@ -380,11 +381,48 @@ describe('computeAutoTune — build-aware fields (regression for session-19 bug)
     expect(heavy.reboundRear).toBeGreaterThan(light.reboundRear as number)
   })
 
-  it('ARB scales with total mass (heavier ⇒ stiffer ARB)', () => {
-    const light = computeAutoTune({ build: lightCar, dials }).tune
-    const heavy = computeAutoTune({ build: heavyCar, dials }).tune
-    expect(heavy.arbFront).toBeGreaterThan(light.arbFront as number)
-    expect(heavy.arbRear).toBeGreaterThan(light.arbRear as number)
+  it('ARB front shifts with weight distribution × drivetrain factor', () => {
+    // forza.tools anchor: RWD with more front weight ⇒ stiffer front ARB
+    // to fight push; FWD does the opposite (softer front so the inside
+    // front isn't unloaded under power). Rear ARB is baseline-only.
+    const rwdNoseHeavy = computeAutoTune({
+      build: { ...lightCar, weightFrontPct: 60, drivetrain: 'rwd' },
+      dials
+    }).tune
+    const rwdTailHeavy = computeAutoTune({
+      build: { ...lightCar, weightFrontPct: 40, drivetrain: 'rwd' },
+      dials
+    }).tune
+    expect(rwdNoseHeavy.arbFront).toBeGreaterThan(rwdTailHeavy.arbFront as number)
+
+    const fwdNoseHeavy = computeAutoTune({
+      build: { ...lightCar, weightFrontPct: 60, drivetrain: 'fwd' },
+      dials
+    }).tune
+    const fwdTailHeavy = computeAutoTune({
+      build: { ...lightCar, weightFrontPct: 40, drivetrain: 'fwd' },
+      dials
+    }).tune
+    expect(fwdNoseHeavy.arbFront).toBeLessThan(fwdTailHeavy.arbFront as number)
+  })
+
+  it('ARB uses drivetrain-specific baselines (FWD softest front, AWD stiffest)', () => {
+    // At neutral weight distribution (no shift), the drivetrain baselines
+    // alone decide arbFront: RWD 22, AWD 26, FWD 12.
+    const rwd = computeAutoTune({
+      build: { ...lightCar, weightFrontPct: 50, drivetrain: 'rwd' },
+      dials
+    }).tune
+    const fwd = computeAutoTune({
+      build: { ...lightCar, weightFrontPct: 50, drivetrain: 'fwd' },
+      dials
+    }).tune
+    const awd = computeAutoTune({
+      build: { ...lightCar, weightFrontPct: 50, drivetrain: 'awd' },
+      dials
+    }).tune
+    expect(fwd.arbFront).toBeLessThan(rwd.arbFront as number)
+    expect(awd.arbFront).toBeGreaterThan(rwd.arbFront as number)
   })
 
   it('brake balance tracks static weight distribution', () => {
@@ -472,9 +510,9 @@ describe('computeAutoTune — build-aware fields (regression for session-19 bug)
     // bump = 8 * 1.0 * 1.0 + 0 = 8 (exactly)
     expect(tune.bumpFront).toBe(8)
     expect(tune.bumpRear).toBe(8)
-    // arbFront = 30 * 1.0 * 1.0 * 1.0 = 30
-    expect(tune.arbFront).toBe(30)
-    expect(tune.arbRear).toBe(28)
+    // RWD 48F: arbFront = 22 + (48-50)*1.0 = 20; arbRear = 30 (baseline)
+    expect(tune.arbFront).toBe(20)
+    expect(tune.arbRear).toBe(30)
     // brakeBalance = 48 + 4 + 0 = 52 (matches pre-fix flat value)
     expect(tune.brakeBalance).toBe(52)
   })

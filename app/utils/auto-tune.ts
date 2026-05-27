@@ -94,11 +94,28 @@ const AERO_FREQ_MUL: Record<string, number> = {
 const DAMPER_BUMP_BASE = 8
 const DAMPER_REBOUND_BASE = 11
 
-/** ARB midpoints on FH's 1–65 scale at neutral dials, for the reference
- *  build. Heavier car ⇒ more body roll moment ⇒ stiffer ARB; scales
- *  linearly with total mass relative to the reference. */
-const ARB_FRONT_BASE = 30
-const ARB_REAR_BASE = 28
+/** ARB baselines on FH's 1–65 scale at neutral dials, by drivetrain.
+ *  Anchored to the forza.tools (FH6) calculator: RWD wants a stiffer rear
+ *  to free rotation; FWD wants a very soft front so the inside front isn't
+ *  unloaded under power; AWD sits between the two. Total-mass scaling is
+ *  not applied — body-roll moment is dominated by track width and CoG
+ *  height (which the per-car slider range already encodes), not by mass. */
+const ARB_BASE: Record<string, { front: number, rear: number }> = {
+  rwd: { front: 22, rear: 30 },
+  awd: { front: 26, rear: 33 },
+  fwd: { front: 12, rear: 32 }
+}
+const ARB_BASE_DEFAULT: { front: number, rear: number } = { front: 22, rear: 30 }
+
+/** Front ARB shift per 1 % off 50 / 50 weight distribution, by drivetrain.
+ *  RWD with a front-heavy build adds front ARB to fight push; FWD does
+ *  the opposite (softer front under heavy nose to keep the inside front
+ *  loaded); AWD lands in between. From forza.tools' engine.js. */
+const ARB_WEIGHT_SHIFT_FACTOR: Record<string, number> = {
+  rwd: 1.0,
+  fwd: -1.0,
+  awd: 0.66
+}
 
 /** Reference build for the build-aware multipliers below.
  *
@@ -148,7 +165,17 @@ const TIRE_PRESSURE_BAR: Record<Surface, number> = {
   'cross-country': 1.2
 }
 
-const CASTER_DEG = 5.0
+/** Caster (°) lerped on total weight in lb. From forza.tools' engine.js —
+ *  heavier cars want more caster for stability and steering load. Drift
+ *  and drag get fixed overrides elsewhere (not exposed in v1's dials). */
+const CASTER_BY_WEIGHT_LB: [number, number][] = [
+  [2500, 5.2],
+  [3000, 6.0],
+  [3500, 6.5],
+  [4500, 7.0]
+]
+const KG_TO_LB = 2.20462
+
 const TOE_REAR_BASE = 0.15 // slight rear toe-in for stability
 
 const BRAKE_BALANCE_BASE = 52 // % front
@@ -161,16 +188,17 @@ const BRAKE_PRESSURE = 100
 // drivetrain-correct Aero Balance target drive the F/R ratio.
 //
 // FH6's in-game readout exposes an "Aero Balance" stat = F / (F + R).
-// Community consensus (forzatune, forzafire, kboosting, sportskeeda):
-//   FWD ≈ 0.50, RWD ≈ 0.52, AWD ≈ 0.42 (AWD wants more front to fight push)
+// Anchored to forza.tools' calculator: RWD goes 40 / 60 (rear-biased — the
+// drive axle needs grip); FWD and AWD sit at 43 / 57 (still rear-biased
+// but less so, since the front already has drive load).
 const AERO_FRONT_BASE_LB = 90
 const AERO_REAR_WING_ONLY_LB = 110
 const AERO_TARGET_BALANCE: Record<string, number> = {
-  fwd: 0.50,
-  rwd: 0.52,
-  awd: 0.42
+  fwd: 0.43,
+  rwd: 0.40,
+  awd: 0.43
 }
-const AERO_TARGET_BALANCE_DEFAULT = 0.50
+const AERO_TARGET_BALANCE_DEFAULT = 0.43
 const AERO_BALANCE_DIAL_SHIFT = 0.03 // per balance click; tight ⇒ more rear-biased
 
 // --- HELPERS --------------------------------------------------------------
@@ -186,6 +214,27 @@ function clamp(v: number, lo: number, hi: number): number {
  *  alignment / caster. Avoids floating-point noise like 8.300000000000001. */
 function step1(v: number): number {
   return Number(v.toFixed(1))
+}
+
+/** Piecewise-linear interpolation over a sorted [x, y] table, clamped at
+ *  the endpoints. Matches the shape forza.tools' engine.js uses for
+ *  caster, damper bump base, and tire-pressure weight modifier. */
+function lerpTable(table: readonly (readonly [number, number])[], x: number): number {
+  const first = table[0]
+  const last = table[table.length - 1]
+  if (!first || !last) return 0
+  if (x <= first[0]) return first[1]
+  if (x >= last[0]) return last[1]
+  for (let i = 0; i < table.length - 1; i++) {
+    const p0 = table[i]
+    const p1 = table[i + 1]
+    if (!p0 || !p1) continue
+    if (x >= p0[0] && x <= p1[0]) {
+      const t = (x - p0[0]) / (p1[0] - p0[0])
+      return p0[1] + (p1[1] - p0[1]) * t
+    }
+  }
+  return last[1]
 }
 
 /** Spring rate from sprung mass + target natural frequency.
@@ -268,6 +317,11 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   // and the downforce assignment further below.
   const aero = typeof build.aero === 'string' ? build.aero : 'none'
 
+  // Drivetrain — read once, used by ARB baselines, differential, and aero
+  // balance. Null when missing; ARB/aero fall back to RWD-shaped defaults
+  // for the incomplete-build preview (diff stays undefined and gets gated).
+  const drivetrain = typeof build.drivetrain === 'string' ? build.drivetrain : null
+
   // Springs — frequency method. Aero package scales the target frequency:
   // a car with downforce wants to keep ride height stable under high-speed
   // load and so wants stiffer springs than its mass-and-surface peers.
@@ -284,14 +338,12 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   // (When weight or weightFrontPct is missing, blockers prevents submission;
   // springs are left undefined in the preview.)
 
-  // Build-aware multipliers — anchored to REFERENCE_*. A build matching the
-  // reference produces 1.0 everywhere; lighter / heavier / narrower-tire
-  // builds shift the magnitudes accordingly. Without these, dampers / ARBs /
-  // tire pressure / brake balance would be flat across cars (the session
-  // 19 bug: a 1035 kg RWD and a 1431 kg AWD produced near-identical tunes).
+  // Damper scaling — per-axle sprung mass relative to the reference. √(m)
+  // because critical damping is c ∝ √(k·m) and the spring already encodes
+  // mass via the frequency method. Without this, a 1035 kg RWD and a
+  // 1431 kg AWD would emit near-identical damper values (session-19 bug).
   const damperScaleF = Math.sqrt(sprungF / REFERENCE_SPRUNG_F)
   const damperScaleR = Math.sqrt(sprungR / REFERENCE_SPRUNG_R)
-  const arbScale = weight !== null ? (weight / REFERENCE_TOTAL_KG) : 1.0
 
   // Dampers — stiffness drives magnitude; build mass drives per-axle scaling;
   // balance shifts F/R by a fixed click. FH6 step is 0.1.
@@ -304,10 +356,18 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   tune.reboundFront = step1(clamp(rebF + bal, 1, 20))
   tune.reboundRear = step1(clamp(rebR - bal, 1, 20))
 
-  // ARB — stiffer end ⇒ more load transfer ⇒ less grip at that end. FH6 step is 0.1.
-  // Scales linearly with total mass relative to the reference.
-  tune.arbFront = step1(clamp(ARB_FRONT_BASE * stiff * (1 + 0.10 * bal) * arbScale, 1, 65))
-  tune.arbRear = step1(clamp(ARB_REAR_BASE * stiff * (1 - 0.10 * bal) * arbScale, 1, 65))
+  // ARB — drivetrain baselines (forza.tools): RWD wants stiffer rear, FWD
+  // wants very soft front. Front shifts by (frontWeight% − 50) × factor,
+  // where the factor is drivetrain-specific (RWD +1, FWD −1, AWD +0.66).
+  // Rear is baseline-only — body roll moment is dominated by track width
+  // and CoG height (the per-car slider range already encodes that), not
+  // total mass. Auto-tune's stiffness and balance dials still apply on top.
+  const arbBase = ARB_BASE[drivetrain ?? ''] ?? ARB_BASE_DEFAULT
+  const arbFactor = ARB_WEIGHT_SHIFT_FACTOR[drivetrain ?? ''] ?? 0
+  const arbDistPct = distPct !== null ? distPct : 50
+  const arbFrontShifted = arbBase.front + (arbDistPct - 50) * arbFactor
+  tune.arbFront = step1(clamp(arbFrontShifted * stiff * (1 + 0.10 * bal), 1, 65))
+  tune.arbRear = step1(clamp(arbBase.rear * stiff * (1 - 0.10 * bal), 1, 65))
 
   // Ride height — surface-driven; same front/rear for v1.
   const rh = RIDE_HEIGHT_IN[dials.surface]
@@ -318,7 +378,11 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   const camberF = CAMBER_FRONT_BASE[dials.surface]
   tune.camberFront = step1(clamp(camberF, -5, 5))
   tune.camberRear = step1(clamp(camberF + CAMBER_REAR_OFFSET, -5, 5))
-  tune.casterFront = step1(clamp(CASTER_DEG, 1, 7))
+  // Caster — lerped on total weight (lb). Heavier cars want more caster
+  // for stability and steering load; lighter cars stay lower for nimbler
+  // turn-in. When weight is missing, fall back to the reference build.
+  const weightLb = (weight ?? REFERENCE_TOTAL_KG) * KG_TO_LB
+  tune.casterFront = step1(clamp(lerpTable(CASTER_BY_WEIGHT_LB, weightLb), 1, 7))
   tune.toeFront = 0.0
   // Tight ⇒ more rear toe-in for stability; loose ⇒ less.
   tune.toeRear = step1(clamp(TOE_REAR_BASE * (1 + 0.5 * bal), -5, 5))
@@ -344,7 +408,6 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   tune.tirePressureRear = Number(tpR.toFixed(4))
 
   // Differential — drivetrain-gated. Tight ⇒ more lock (more traction bias).
-  const drivetrain = typeof build.drivetrain === 'string' ? build.drivetrain : null
   if (drivetrain === 'fwd') {
     tune.frontAccel = clamp(Math.round(25 + 5 * bal), 0, 100)
     tune.frontDecel = 0
