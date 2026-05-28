@@ -3,7 +3,17 @@ import { gunzipSync } from 'node:zlib'
 import { db, schema } from 'hub:db'
 import type { Telemetry } from '~~/server/utils/decode'
 import { summarizeFrames, type FrameAggregates } from '~~/app/utils/tune-signals'
-import { damperHistogramsForLap, type DamperHistogram } from '~~/app/utils/damper-velocity'
+import { damperHistogramsForLap, damperScatterForLap, type DamperHistogram, type DamperScatterPoint } from '~~/app/utils/damper-velocity'
+import { rideHeightHistogramsForLap, type RideHeightHistogram } from '~~/app/utils/ride-height'
+import {
+  rpmDistribution,
+  slipAngleBalanceDistribution,
+  tireTempDistributions,
+  slipRatioDistributions,
+  type QuadDistribution
+} from '~~/app/utils/channel-distributions'
+import type { BinnedValues } from '~~/app/utils/histogram-core'
+import { binFrames, type DynoCurve } from '~~/app/utils/dyno'
 import type { BuildSettings } from '~~/app/utils/build-fields'
 
 /**
@@ -167,6 +177,17 @@ export default defineEventHandler(async (event) => {
   // signals are computed over. null when there aren't enough usable
   // frame transitions (e.g. an empty bundle).
   const damperHistograms = damperHistogramsForLap(allFrames)
+  // Position-domain suspension companions to the damper histogram — same
+  // N-lap window, computed server-side so raw frames stay on the server.
+  const rideHeightHistograms = rideHeightHistogramsForLap(allFrames)
+  const damperScatter = damperScatterForLap(allFrames)
+  // Per-channel distributions for the gearing / balance / tire-temp pages, plus
+  // the engine curve for /tune/gearing. All over the same N-lap window.
+  const rpmHistogram = rpmDistribution(allFrames)
+  const slipAngleBalance = slipAngleBalanceDistribution(allFrames)
+  const tireTemp = tireTempDistributions(allFrames)
+  const slipRatio = slipRatioDistributions(allFrames)
+  const dynoCurve: DynoCurve | null = allFrames.length > 0 ? binFrames(allFrames) : null
 
   return {
     car: carOrdinal !== null
@@ -177,7 +198,14 @@ export default defineEventHandler(async (event) => {
     lapCount,
     frameCount: allFrames.length,
     signals,
-    damperHistograms
+    damperHistograms,
+    rideHeightHistograms,
+    damperScatter,
+    rpmHistogram,
+    slipAngleBalance,
+    tireTemp,
+    slipRatio,
+    dynoCurve
   }
 })
 
@@ -203,6 +231,13 @@ function emptyBundle(
   frameCount: 0
   signals: FrameAggregates
   damperHistograms: { fl: DamperHistogram, fr: DamperHistogram, rl: DamperHistogram, rr: DamperHistogram } | null
+  rideHeightHistograms: { fl: RideHeightHistogram, fr: RideHeightHistogram, rl: RideHeightHistogram, rr: RideHeightHistogram } | null
+  damperScatter: { fl: DamperScatterPoint[], fr: DamperScatterPoint[], rl: DamperScatterPoint[], rr: DamperScatterPoint[] } | null
+  rpmHistogram: BinnedValues | null
+  slipAngleBalance: BinnedValues | null
+  tireTemp: QuadDistribution | null
+  slipRatio: QuadDistribution | null
+  dynoCurve: DynoCurve | null
 } {
   return {
     car: carOrdinal !== null
@@ -213,6 +248,13 @@ function emptyBundle(
     lapCount: 0,
     frameCount: 0,
     signals: summarizeFrames([]),
-    damperHistograms: null
+    damperHistograms: null,
+    rideHeightHistograms: null,
+    damperScatter: null,
+    rpmHistogram: null,
+    slipAngleBalance: null,
+    tireTemp: null,
+    slipRatio: null,
+    dynoCurve: null
   }
 }

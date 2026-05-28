@@ -19,6 +19,7 @@
  */
 
 import type { Telemetry } from '../../server/utils/decode'
+import { binValues } from './histogram-core'
 
 export type Corner = 'fl' | 'fr' | 'rl' | 'rr'
 
@@ -93,46 +94,8 @@ export function computeHistogram(
   velocities: number[],
   binEdges: readonly number[] = DEFAULT_BIN_EDGES
 ): DamperHistogram | null {
-  if (velocities.length === 0) return null
-  if (binEdges.length < 2) return null
-
-  const edges = [...binEdges]
-  const n = edges.length - 1
-  const counts = new Array<number>(n).fill(0)
-
-  for (const v of velocities) {
-    if (!Number.isFinite(v)) continue
-    // Clamp to bin range so extremes count rather than vanish.
-    let idx: number
-    if (v <= edges[0]!) {
-      idx = 0
-    } else if (v >= edges[n]!) {
-      idx = n - 1
-    } else {
-      // Linear scan is fine here — N is small (≈14).
-      idx = 0
-      for (let i = 0; i < n; i++) {
-        if (v >= edges[i]! && v < edges[i + 1]!) {
-          idx = i
-          break
-        }
-      }
-    }
-    counts[idx]!++
-  }
-
-  let totalSamples = 0
-  for (const c of counts) totalSamples += c
-
-  let peakBinIndex = 0
-  let peakCount = 0
-  for (let i = 0; i < counts.length; i++) {
-    if (counts[i]! > peakCount) {
-      peakCount = counts[i]!
-      peakBinIndex = i
-    }
-  }
-  const peakPct = totalSamples > 0 ? peakCount / totalSamples : 0
+  const binned = binValues(velocities, binEdges)
+  if (!binned) return null
 
   // Zone time-shares — independent of bin edges; computed directly from
   // velocity samples so the percentages are exact even if bin edges
@@ -155,11 +118,11 @@ export function computeHistogram(
   const fastReboundPct = tot > 0 ? fastReb / tot : 0
 
   return {
-    binEdges: edges,
-    counts,
-    totalSamples,
-    peakBinIndex,
-    peakPct,
+    binEdges: binned.binEdges,
+    counts: binned.counts,
+    totalSamples: binned.totalSamples,
+    peakBinIndex: binned.peakBinIndex,
+    peakPct: binned.peakPct,
     fastBumpPct,
     slowBumpPct,
     slowReboundPct,
@@ -184,5 +147,69 @@ export function damperHistogramsForLap(
   const rl = computeHistogram(damperVelocityFromFrames(frames, 'rl'), binEdges)
   const rr = computeHistogram(damperVelocityFromFrames(frames, 'rr'), binEdges)
   if (!fl || !fr || !rl || !rr) return null
+  return { fl, fr, rl, rr }
+}
+
+/** One point of the damper position×velocity scatter: normalized suspension
+ *  travel (0 = full droop, 1 = bottomed) paired with the damper velocity at
+ *  that frame. */
+export interface DamperScatterPoint {
+  /** Normalized suspension travel 0..1 at the current frame. */
+  pos: number
+  /** Damper velocity mm/s (signed: + compression, − rebound). */
+  vel: number
+}
+
+/** Cap on points returned per corner. A whole lap at 60 Hz is ~5-7k samples;
+ *  rendering that many SVG dots ×4 corners is wasteful and the shape reads
+ *  the same after striding down to ~1k. */
+export const DEFAULT_SCATTER_CAP = 1000
+
+/**
+ * Build the position×velocity scatter for one corner. Velocity reuses the
+ * exact frame-to-frame calc (and pause-edge guard) as the histogram; each
+ * sample is paired with the *current* frame's normalized travel (`suspension`,
+ * not `suspensionMeters`, so the X axis is bounded 0..1 across every car).
+ *
+ * Strides the result down to at most `cap` points, evenly spaced, so density
+ * stays representative rather than front-loaded.
+ */
+export function damperScatterFromFrames(
+  frames: Telemetry[],
+  corner: Corner,
+  cap: number = DEFAULT_SCATTER_CAP
+): DamperScatterPoint[] {
+  const all: DamperScatterPoint[] = []
+  for (let i = 1; i < frames.length; i++) {
+    const prev = frames[i - 1]!
+    const cur = frames[i]!
+    const dtSec = (cur.timestampMs - prev.timestampMs) / 1000
+    if (!Number.isFinite(dtSec) || dtSec <= 0 || dtSec > MAX_DT_SEC) continue
+    const deltaM = cur.suspensionMeters[corner] - prev.suspensionMeters[corner]
+    const pos = cur.suspension[corner]
+    if (!Number.isFinite(deltaM) || !Number.isFinite(pos)) continue
+    all.push({ pos, vel: (deltaM / dtSec) * 1000 })
+  }
+  if (cap <= 0 || all.length <= cap) return all
+  const stride = Math.ceil(all.length / cap)
+  const out: DamperScatterPoint[] = []
+  for (let i = 0; i < all.length; i += stride) out.push(all[i]!)
+  return out
+}
+
+/**
+ * Compute all four corner scatters from one set of frames. Returns null if
+ * any corner produces no usable points (lap too short / all pause edges) —
+ * mirrors damperHistogramsForLap's all-or-nothing contract.
+ */
+export function damperScatterForLap(
+  frames: Telemetry[],
+  cap: number = DEFAULT_SCATTER_CAP
+): { fl: DamperScatterPoint[], fr: DamperScatterPoint[], rl: DamperScatterPoint[], rr: DamperScatterPoint[] } | null {
+  const fl = damperScatterFromFrames(frames, 'fl', cap)
+  const fr = damperScatterFromFrames(frames, 'fr', cap)
+  const rl = damperScatterFromFrames(frames, 'rl', cap)
+  const rr = damperScatterFromFrames(frames, 'rr', cap)
+  if (!fl.length || !fr.length || !rl.length || !rr.length) return null
   return { fl, fr, rl, rr }
 }

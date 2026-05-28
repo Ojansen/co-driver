@@ -3,18 +3,26 @@ import {
   damperVelocityFromFrames,
   computeHistogram,
   damperHistogramsForLap,
+  damperScatterFromFrames,
+  damperScatterForLap,
   DEFAULT_BIN_EDGES
 } from '../../app/utils/damper-velocity'
 import type { Telemetry } from '../../server/utils/decode'
 
 /** Minimal frame factory — only the fields the damper-velocity module
- *  reads are populated. Others are filled with zeros / defaults. */
+ *  reads are populated. Others are filled with zeros / defaults. The `sfl`…
+ *  `srr` options set the normalized `suspension` position the scatter reads;
+ *  they default to 0 so existing velocity/histogram tests are unaffected. */
 function frame(opts: {
   ts: number
   fl?: number
   fr?: number
   rl?: number
   rr?: number
+  sfl?: number
+  sfr?: number
+  srl?: number
+  srr?: number
 }): Telemetry {
   return {
     isRaceOn: true,
@@ -23,7 +31,12 @@ function frame(opts: {
     speedKmh: 0, power: 0, torque: 0, boost: 0,
     gear: 1, throttle: 0, brake: 0, clutch: 0, handBrake: 0, steer: 0,
     drivingLine: 0, aiBrakeDifference: 0,
-    suspension: { fl: 0, fr: 0, rl: 0, rr: 0 },
+    suspension: {
+      fl: opts.sfl ?? 0,
+      fr: opts.sfr ?? 0,
+      rl: opts.srl ?? 0,
+      rr: opts.srr ?? 0
+    },
     suspensionMeters: {
       fl: opts.fl ?? 0,
       fr: opts.fr ?? 0,
@@ -184,6 +197,74 @@ describe('damperHistogramsForLap', () => {
   it('returns null when frames produce no usable samples (single frame)', () => {
     const frames = [frame({ ts: 0 })]
     expect(damperHistogramsForLap(frames)).toBeNull()
+  })
+})
+
+describe('damperScatterFromFrames', () => {
+  it('pairs the current frame position with the velocity at that frame', () => {
+    // 1 mm compression over one 60 Hz frame → 60 mm/s; current pos = 0.5
+    const frames = [
+      frame({ ts: 0, fl: 0.000, sfl: 0.4 }),
+      frame({ ts: 16.67, fl: 0.001, sfl: 0.5 })
+    ]
+    const pts = damperScatterFromFrames(frames, 'fl')
+    expect(pts).toHaveLength(1)
+    expect(pts[0]!.pos).toBeCloseTo(0.5, 5)
+    expect(pts[0]!.vel).toBeCloseTo(60, 0)
+  })
+
+  it('applies the same pause-edge guard as the velocity calc', () => {
+    const frames = [
+      frame({ ts: 0, fl: 0, sfl: 0.3 }),
+      frame({ ts: 200, fl: 0.010, sfl: 0.4 }), // 200 ms gap — dropped
+      frame({ ts: 216.67, fl: 0.011, sfl: 0.5 })
+    ]
+    const pts = damperScatterFromFrames(frames, 'fl')
+    expect(pts).toHaveLength(1)
+    expect(pts[0]!.pos).toBeCloseTo(0.5, 5)
+  })
+
+  it('strides down to at most `cap` points, evenly spaced', () => {
+    const frames: Telemetry[] = []
+    for (let i = 0; i < 100; i++) {
+      frames.push(frame({ ts: i * 16.67, fl: i * 0.0001, sfl: i / 100 }))
+    }
+    // 99 raw pairs, cap 10 → stride = ceil(99/10) = 10 → 10 points
+    const pts = damperScatterFromFrames(frames, 'fl', 10)
+    expect(pts.length).toBeLessThanOrEqual(10)
+    expect(pts.length).toBeGreaterThan(0)
+  })
+
+  it('returns all points when under the cap', () => {
+    const frames = [
+      frame({ ts: 0, fl: 0, sfl: 0.1 }),
+      frame({ ts: 16.67, fl: 0.001, sfl: 0.2 }),
+      frame({ ts: 33.34, fl: 0.002, sfl: 0.3 })
+    ]
+    expect(damperScatterFromFrames(frames, 'fl', 1000)).toHaveLength(2)
+  })
+})
+
+describe('damperScatterForLap', () => {
+  it('returns points per corner', () => {
+    const frames: Telemetry[] = []
+    for (let i = 0; i < 10; i++) {
+      frames.push(frame({
+        ts: i * 16.67,
+        fl: i * 0.001,
+        rr: -i * 0.001,
+        sfl: 0.5,
+        srr: 0.6
+      }))
+    }
+    const out = damperScatterForLap(frames)
+    expect(out).not.toBeNull()
+    expect(out!.fl).toHaveLength(9)
+    expect(out!.rr).toHaveLength(9)
+  })
+
+  it('returns null when frames produce no usable points (single frame)', () => {
+    expect(damperScatterForLap([frame({ ts: 0 })])).toBeNull()
   })
 })
 

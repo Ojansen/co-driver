@@ -17,11 +17,19 @@ if (!cat) {
 
 useHead({ title: `${cat.title} · tuning reference` })
 
-// Damper velocity histograms — only the /tune/dampers page surfaces them
-// (it's the page that exists to interpret the shape). They ride the same
-// useTuneData() data path as YourDataPanel below: same N-lap window, same
-// car/build resolution. Component handles the null case internally.
-const tuneData = slug === 'dampers' ? useTuneData() : null
+// Slugs that surface a telemetry graph above the static copy. All ride the
+// same useTuneData() data path as YourDataPanel below (same N-lap window, same
+// car/build resolution). Components handle the null case internally.
+const GRAPH_SLUGS = new Set([
+  'dampers', 'ride-height', 'gearing', 'tire-pressure', 'alignment',
+  'anti-roll-bars', 'differential'
+])
+const tuneData = GRAPH_SLUGS.has(slug) ? useTuneData() : null
+
+const lapsLabel = computed(() => {
+  const n = tuneData?.data.value?.lapCount ?? 0
+  return `last ${n} lap${n === 1 ? '' : 's'}`
+})
 
 const relatedCats = computed(() =>
   (cat!.related ?? [])
@@ -68,6 +76,92 @@ const relevantDiagnoses = computed(() =>
         :histograms="tuneData.data.value.damperHistograms"
         title="damper velocity"
         :subtitle="`last ${tuneData.data.value.lapCount} lap${tuneData.data.value.lapCount === 1 ? '' : 's'}`"
+      />
+    </section>
+
+    <section
+      v-if="slug === 'dampers' && tuneData?.data.value?.damperScatter"
+      class="mb-10"
+    >
+      <DamperScatter
+        :scatter="tuneData.data.value.damperScatter"
+        title="damper position × velocity"
+        :subtitle="`last ${tuneData.data.value.lapCount} lap${tuneData.data.value.lapCount === 1 ? '' : 's'}`"
+      />
+    </section>
+
+    <section
+      v-if="slug === 'ride-height' && tuneData?.data.value?.rideHeightHistograms"
+      class="mb-10"
+    >
+      <RideHeightHistogram
+        :histograms="tuneData.data.value.rideHeightHistograms"
+        title="ride height"
+        :subtitle="`last ${tuneData.data.value.lapCount} lap${tuneData.data.value.lapCount === 1 ? '' : 's'}`"
+      />
+    </section>
+
+    <section
+      v-if="slug === 'gearing' && tuneData?.data.value?.dynoCurve && tuneData.data.value.dynoCurve.buckets.length"
+      class="mb-6"
+    >
+      <DynoCurve
+        :curve="tuneData.data.value.dynoCurve"
+        mode="detailed"
+        title="dyno"
+        :subtitle="lapsLabel"
+      />
+    </section>
+
+    <section
+      v-if="slug === 'gearing' && tuneData?.data.value?.rpmHistogram"
+      class="mb-10"
+    >
+      <ChannelHistogram
+        :histogram="tuneData.data.value.rpmHistogram"
+        title="time at rpm"
+        :subtitle="lapsLabel"
+        unit="rpm"
+      />
+    </section>
+
+    <section
+      v-if="(slug === 'tire-pressure' || slug === 'alignment') && tuneData?.data.value?.tireTemp"
+      class="mb-10"
+    >
+      <QuadHistogram
+        :histograms="tuneData.data.value.tireTemp"
+        title="tire temperature"
+        :subtitle="lapsLabel"
+        unit="°C"
+      />
+    </section>
+
+    <section
+      v-if="slug === 'anti-roll-bars' && tuneData?.data.value?.slipAngleBalance"
+      class="mb-10"
+    >
+      <ChannelHistogram
+        :histogram="tuneData.data.value.slipAngleBalance"
+        title="balance · front − rear slip angle"
+        :subtitle="`${lapsLabel} · cornering only`"
+        unit="°"
+        :signed="true"
+        left-label="oversteer"
+        right-label="understeer"
+      />
+    </section>
+
+    <section
+      v-if="slug === 'differential' && tuneData?.data.value?.slipRatio"
+      class="mb-10"
+    >
+      <QuadHistogram
+        :histograms="tuneData.data.value.slipRatio"
+        title="wheel slip ratio"
+        :subtitle="lapsLabel"
+        :signed="true"
+        :decimals="1"
       />
     </section>
 
