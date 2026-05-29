@@ -32,11 +32,11 @@
  * the car's previous session.
  */
 
-import { gzipSync } from 'node:zlib'
 import { desc, eq } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
 import type { EventType } from './../db/schema'
 import type { Telemetry } from './decode'
+import { encodeFrames } from './frames-codec'
 import { forzaBus, type RecordingState, type TunePrompt } from './forza-bus'
 
 /** Buffer length (frames at 60 Hz) past which we treat the run as "started"
@@ -243,7 +243,7 @@ export class Recorder {
 
   private async flushLap(sessionId: number, lapNumber: number, timeMs: number, frames: Telemetry[]): Promise<void> {
     try {
-      const blob = gzipSync(Buffer.from(JSON.stringify(frames), 'utf8'))
+      const blob = encodeFrames(frames)
       await db.insert(schema.laps).values({
         sessionId,
         lapNumber,

@@ -1,7 +1,7 @@
-import { gunzipSync } from 'node:zlib'
 import { asc, eq } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
 import type { Telemetry } from '~~/server/utils/decode'
+import { decodeFrames } from '~~/server/utils/frames-codec'
 import { binFrames } from '~~/app/utils/dyno'
 
 /**
@@ -47,8 +47,7 @@ export default defineEventHandler(async (event) => {
   for (const lap of lapRows) {
     if (!lap.framesBlob) continue
     try {
-      const json = gunzipSync(lap.framesBlob).toString('utf8')
-      const frames = JSON.parse(json) as Telemetry[]
+      const frames = decodeFrames(lap.framesBlob)
       for (const f of frames) allFrames.push(f)
     } catch (err) {
       console.error(`[dyno] failed to unzip lap ${lap.id}:`, err)

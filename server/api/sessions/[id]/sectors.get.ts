@@ -1,7 +1,6 @@
-import { gunzipSync } from 'node:zlib'
 import { asc, eq } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
-import type { Telemetry } from '~~/server/utils/decode'
+import { decodeFrames } from '~~/server/utils/frames-codec'
 import { computeSectorTimes, DEFAULT_SECTOR_COUNT } from '~~/app/utils/sectors'
 
 /**
@@ -45,7 +44,7 @@ export default defineEventHandler(async (event) => {
       continue
     }
     try {
-      const frames = JSON.parse(gunzipSync(lap.framesBlob).toString('utf8')) as Telemetry[]
+      const frames = decodeFrames(lap.framesBlob)
       laps.push({
         lapNumber: lap.lapNumber,
         sectorTimes: computeSectorTimes(frames)

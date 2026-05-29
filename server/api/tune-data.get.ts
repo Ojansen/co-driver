@@ -1,7 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm'
-import { gunzipSync } from 'node:zlib'
 import { db, schema } from 'hub:db'
 import type { Telemetry } from '~~/server/utils/decode'
+import { decodeFrames } from '~~/server/utils/frames-codec'
 import { summarizeFrames, type FrameAggregates } from '~~/app/utils/tune-signals'
 import { damperHistogramsForLap, damperScatterForLap, type DamperHistogram, type DamperScatterPoint } from '~~/app/utils/damper-velocity'
 import { rideHeightHistogramsForLap, type RideHeightHistogram } from '~~/app/utils/ride-height'
@@ -164,7 +164,7 @@ export default defineEventHandler(async (event) => {
     if (!lap.framesBlob) continue
     if (lap.timeMs <= 0) continue
     try {
-      const decoded = JSON.parse(gunzipSync(lap.framesBlob).toString('utf8')) as Telemetry[]
+      const decoded = decodeFrames(lap.framesBlob)
       for (const f of decoded) allFrames.push(f)
     } catch (err) {
       console.error(`[tune-data] failed to read lap ${lap.id}:`, err)

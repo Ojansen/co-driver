@@ -1,7 +1,6 @@
 import { and, desc, eq, lt } from 'drizzle-orm'
-import { gunzipSync } from 'node:zlib'
 import { db, schema } from 'hub:db'
-import type { Telemetry } from '~~/server/utils/decode'
+import { decodeFrames } from '~~/server/utils/frames-codec'
 import { binFrames } from '~~/app/utils/dyno'
 import { summarizeTrailBraking } from '~~/app/utils/trail-braking'
 
@@ -84,7 +83,7 @@ export default defineEventHandler(async (event) => {
       }
       if (!lap.framesBlob) continue
       try {
-        const frames = JSON.parse(gunzipSync(lap.framesBlob).toString('utf8')) as Telemetry[]
+        const frames = decodeFrames(lap.framesBlob)
         const tb = summarizeTrailBraking(frames)
         trailBrakingBrakingFrames += tb.brakingFrames
         trailBrakingRatioSum += tb.ratio * tb.brakingFrames // weighted sum

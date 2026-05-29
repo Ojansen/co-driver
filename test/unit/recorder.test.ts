@@ -9,10 +9,10 @@
  * the real `forzaBus` singleton, assert on captured `laps` inserts.
  */
 
-import { gunzipSync } from 'node:zlib'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EventType } from '../../server/db/schema'
-import type { Telemetry } from '../../server/utils/decode'
+import type { Telemetry, Quad } from '../../server/utils/decode'
+import { decodeFrames } from '../../server/utils/frames-codec'
 
 const { dbState, schemaRefs } = vi.hoisted(() => {
   const dbState = {
@@ -136,14 +136,27 @@ interface FrameOpts {
 }
 
 function makeFrame({ lapNumber, isRaceOn, timestampMs, lapLast = 0 }: FrameOpts): Telemetry {
-  // Build only the fields the recorder reads. Cast to Telemetry — gzipped
-  // round-trip works because JSON.stringify ignores undefined.
+  // A complete canonical frame — the columnar codec the recorder now writes
+  // serialises every field, so the test data must be a full Telemetry (the
+  // real adapters always emit one). The recorder only reads isRaceOn / lap /
+  // timestampMs; the rest are inert defaults.
+  const q = (): Quad => ({ fl: 0, fr: 0, rl: 0, rr: 0 })
+  const v3 = () => ({ x: 0, y: 0, z: 0 })
   return {
     isRaceOn,
     timestampMs,
+    rpm: 0, rpmMax: 0, rpmIdle: 0,
+    speedKmh: 0, power: 0, torque: 0, boost: 0,
+    gear: 0, throttle: 0, brake: 0, clutch: 0, handBrake: 0, steer: 0,
+    drivingLine: null, aiBrakeDifference: null,
+    suspension: q(), suspensionMeters: q(), slipRatio: q(), slipAngle: q(), combinedSlip: q(), tireTempC: q(),
+    wheelRotation: null, rumble: null, puddle: null,
+    yaw: 0, pitch: 0, roll: 0,
+    position: v3(), velocity: v3(), acceleration: v3(), angularVelocity: v3(),
+    car: { ordinal: 12345, class: 800, pi: 745, drivetrain: 0, cylinders: 4 },
     lap: { number: lapNumber, racePosition: 1, current: 0, last: lapLast, best: 0, raceTime: 0, distance: 0 },
-    car: { ordinal: 12345, class: 800, pi: 745, drivetrain: 0, cylinders: 4 }
-  } as unknown as Telemetry
+    fuel: null, rawLength: 324
+  }
 }
 
 async function runScenario(eventType: EventType, frames: Telemetry[]): Promise<typeof dbState.lapsInserted> {
@@ -182,7 +195,7 @@ describe('recorder — uniform fallback across all event types (issue #5)', () =
       expect(laps[0]!.lapNumber).toBe(1)
       // timeMs ≈ last.timestampMs − first.timestampMs = 599 * 16 = 9584
       expect(laps[0]!.timeMs).toBe(9584)
-      const replayed = JSON.parse(gunzipSync(laps[0]!.framesBlob).toString('utf8')) as Telemetry[]
+      const replayed = decodeFrames(laps[0]!.framesBlob)
       expect(replayed).toHaveLength(600)
     })
 
@@ -225,7 +238,7 @@ describe('recorder — uniform fallback across all event types (issue #5)', () =
       expect(laps[0]!.lapNumber).toBe(1)
       // timeMs spans only the isRaceOn=true frames, since !isRaceOn frames never enter the buffer.
       expect(laps[0]!.timeMs).toBe(lastRunFrameTs - (1000 + 16))
-      const replayed = JSON.parse(gunzipSync(laps[0]!.framesBlob).toString('utf8')) as Telemetry[]
+      const replayed = decodeFrames(laps[0]!.framesBlob)
       expect(replayed).toHaveLength(300)
     })
 
@@ -245,7 +258,7 @@ describe('recorder — uniform fallback across all event types (issue #5)', () =
 
       const laps = await runScenario(eventType, frames)
       expect(laps).toHaveLength(1)
-      const replayed = JSON.parse(gunzipSync(laps[0]!.framesBlob).toString('utf8')) as Telemetry[]
+      const replayed = decodeFrames(laps[0]!.framesBlob)
       expect(replayed).toHaveLength(600)
       expect(replayed[0]!.timestampMs).toBe(realRunStartTs)
     })

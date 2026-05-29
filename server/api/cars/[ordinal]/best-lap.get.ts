@@ -1,6 +1,6 @@
-import { gunzipSync } from 'node:zlib'
 import { and, asc, eq } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
+import { decodeFrames } from '~~/server/utils/frames-codec'
 
 /**
  * Best lap (lowest timeMs) for a car. Optional `eventId` query param scopes
@@ -48,8 +48,7 @@ export default defineEventHandler(async (event) => {
 
   if (!row) return null
 
-  const json = gunzipSync(row.lap.framesBlob).toString('utf8')
-  const frames = JSON.parse(json) as unknown[]
+  const frames = decodeFrames(row.lap.framesBlob)
 
   return {
     lapId: row.lap.id,

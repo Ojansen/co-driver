@@ -11,10 +11,10 @@
  * demo events from the UI first.
  */
 
-import { gzipSync } from 'node:zlib'
 import { and, eq, like } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
 import type { Telemetry } from '~~/server/utils/decode'
+import { encodeFrames } from '~~/server/utils/frames-codec'
 
 export default defineEventHandler(async () => {
   if (process.env.NODE_ENV === 'production') {
@@ -122,7 +122,7 @@ async function insertSession(
 
   for (const spec of laps) {
     const { frames, timeMs } = generateLap(spec, car, pi, startedAt)
-    const blob = gzipSync(Buffer.from(JSON.stringify(frames), 'utf8'))
+    const blob = encodeFrames(frames)
     await db.insert(schema.laps).values({
       sessionId: session.id,
       lapNumber: spec.lapNumber,
