@@ -25,20 +25,23 @@ const CX = 20 // helix horizontal center within the 0..40 viewBox
 const AMP = 12 // helix half-width (coil radius in x)
 const COILS = 6
 const SAMPLES = 12 // points per coil; 6*12 = 72 → smooth at panel size
-const CAP_TOP = 8 // chassis-side mounting cap (fixed)
-const CAP_BOT = 92 // hub-side cap at full extension
+const CAP_TOP = 8 // chassis-side cap at full extension
+const CAP_BOT = 92 // hub/road-side mounting cap (fixed — the wheel sits on the road)
 const MIN_SPAN = 34 // shortest coil span (fully compressed / bunched)
 const MAX_SPAN = CAP_BOT - CAP_TOP // 84 — fully extended
 
+// Ground reference frame: the bottom cap (wheel/road) is anchored and the top
+// cap (chassis) descends as the corner compresses, so the body visibly squats
+// onto the wheel and the coils bunch toward the base.
 const span = computed(() => MAX_SPAN - clampUnit(props.compression) * (MAX_SPAN - MIN_SPAN))
-const yBot = computed(() => CAP_TOP + span.value)
+const yTop = computed(() => CAP_BOT - span.value)
 
 const stroke = computed(() => suspColor(props.compression))
 
 const coilPath = computed(() => {
   const n = COILS * SAMPLES
-  const top = CAP_TOP
-  const bottom = yBot.value
+  const top = yTop.value
+  const bottom = CAP_BOT
   let d = ''
   for (let i = 0; i <= n; i++) {
     const t = i / n
@@ -108,22 +111,22 @@ const damperVelocityText = computed(() => {
           fill="#ef4444"
           :opacity="bottoming ? 0.9 : 0.25"
         />
-        <!-- chassis-side mounting cap (fixed) -->
+        <!-- chassis-side cap (descends under compression) -->
         <line
           :x1="CX - AMP - 3"
-          :y1="CAP_TOP"
+          :y1="yTop"
           :x2="CX + AMP + 3"
-          :y2="CAP_TOP"
+          :y2="yTop"
           :stroke="stroke"
           stroke-width="2.2"
           stroke-linecap="round"
         />
-        <!-- hub-side mounting cap (rises under compression) -->
+        <!-- hub/road-side mounting cap (fixed at the base) -->
         <line
           :x1="CX - AMP - 3"
-          :y1="yBot"
+          :y1="CAP_BOT"
           :x2="CX + AMP + 3"
-          :y2="yBot"
+          :y2="CAP_BOT"
           :stroke="stroke"
           stroke-width="2.2"
           stroke-linecap="round"
