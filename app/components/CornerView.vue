@@ -44,7 +44,7 @@ const oversteer = useSustained(
 // readout is run through a light EMA. Cosmetic for the live gauge only; the
 // recorder and per-lap histograms (SuspensionHistogram / DamperScatter) use
 // the raw signal.
-const DAMPER_EMA_ALPHA = 0.25
+const DAMPER_EMA_ALPHA = 0.15
 interface DamperVelocity { fl: number, fr: number, rl: number, rr: number }
 interface PrevSusp {
   ts: number
