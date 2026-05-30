@@ -20,20 +20,22 @@ useHead({ title: 'Manual · Live' })
           to="/live"
           class="text-green-300 hover:underline"
         >/live</NuxtLink> page is your phone-propped-next-to-the-TV
-        dashboard: real-time chassis state while you drive. Four corner
-        panels around a center panel — per-tire grip on the sides, chassis
-        attitude and inputs in the middle.
+        dashboard: real-time chassis state while you drive. The instrument
+        cluster runs across the top; four corner panels sit around a center
+        column. Each corner shows per-tire grip plus that wheel's spring and
+        damper; the center column carries your inputs, the chassis attitude
+        and power readouts, and the G-G dot.
       </template>
     </PageHeader>
 
     <ManualEntry
       id="gg-scatter"
       title="G-G scatter · chassis"
-      where="CenterPanel · center of the page"
+      where="Center column · below the input bars and attitude readouts"
     >
       <template #intro>
         <p>
-          Round disc in the middle of the center panel. Plots the car's
+          Round disc at the foot of the center column. Plots the car's
           instantaneous lateral G against longitudinal G — the so-called
           "friction circle" or "G-G plot," a pro-tool standard. The
           scatter cloud shows the envelope of how the car has been driven
@@ -262,50 +264,120 @@ useHead({ title: 'Manual · Live' })
     </ManualEntry>
 
     <ManualEntry
-      id="damper-readout"
-      title="Damper velocity readout · per corner"
-      where="CornerPanel — next to the SUSP label in each corner panel header"
+      id="spring-damper"
+      title="Spring & damper · per corner"
+      where="CornerPanel — the coil + vertical bar on the outboard edge of each corner panel"
     >
       <template #intro>
         <p>
-          Signed mm/s number showing how fast the spring is moving right
-          now at that corner. Positive = compression (spring being
-          squished), negative = rebound (spring extending). The aggregated
-          version is the damper velocity histogram on
+          Two different things share this strip, and they're tuned
+          separately. The <strong>coil</strong> shows spring
+          <em>travel</em> — where the suspension is sitting right now
+          (a position). The <strong>bar</strong> beside it shows damper
+          <em>velocity</em> — how fast it's moving (a rate). The spring is
+          set by spring rate and ride height; the damper is set by bump and
+          rebound stiffness. Same corner, different levers — hence the two
+          labels, each linking to its own
           <NuxtLink
-            to="/manual/replay#damper-histogram"
+            to="/tune"
             class="text-green-300 hover:underline"
-          >/replay</NuxtLink>;
-          this is the live equivalent.
+          >/tune</NuxtLink>
+          page.
         </p>
       </template>
       <template #how>
         <ul class="list-disc space-y-1.5 pl-5">
           <li>
-            <span class="font-mono text-zinc-100">Number</span> — signed
-            mm/s, rounded to integer. <strong>+ = compression</strong>,
-            <strong>− = rebound</strong>.
+            <span class="font-mono text-zinc-100">SPRING coil</span> —
+            anchored at the base (the wheel on the road). As the corner
+            loads, the top (chassis) cap descends and the coils bunch toward
+            the bottom — the body squatting onto the wheel.
           </li>
           <li>
-            <span class="font-mono text-zinc-100">Color</span> — zone
-            convention from the histogram:
-            <span style="color:#71717a">zinc</span> when |v| &lt; 25 mm/s
-            (slow zone, normal),
-            <span style="color:#e4e4e7">light</span> when 25-50,
-            <span style="color:#fcd34d">amber</span> when |v| &gt; 50
-            (fast zone — kerb hits, rapid weight transfer).
+            <span class="font-mono text-zinc-100">Dashed line at the top</span>
+            — the full-droop reference. The gap between it and the coil's top
+            is how far this corner has travelled.
+          </li>
+          <li>
+            <span class="font-mono text-zinc-100">Coil color</span> —
+            <span style="color:#22c55e">green</span> normal,
+            <span style="color:#f59e0b">amber</span> past 80 % travel,
+            <span style="color:#ef4444">red</span> past 95 %. The red band at
+            the base is the bump stop; the whole coil pulses when bottoming.
+            The <span class="font-mono">cm</span> readout below is travel.
+          </li>
+          <li>
+            <span class="font-mono text-zinc-100">DAMPER bar</span> — zero in
+            the middle. <strong>Rebound fills up</strong> (REB, spring
+            extending), <strong>bump fills down</strong> (BMP, spring
+            compressing). The <span class="font-mono">mm/s</span> readout is
+            signed: + = bump, − = rebound.
+          </li>
+          <li>
+            <span class="font-mono text-zinc-100">Bar color &amp; ticks</span>
+            — faint ticks mark 25 and 50 mm/s.
+            <span style="color:#52525b">slow</span> &lt; 25,
+            <span style="color:#a1a1aa">medium</span> 25-50,
+            <span style="color:#f59e0b">fast</span> &gt; 50 mm/s (kerb hits,
+            rapid weight transfer). Lightly smoothed so it's readable rather
+            than strobing every frame.
           </li>
         </ul>
       </template>
+      <template #shapes>
+        <table class="w-full text-sm">
+          <tbody class="divide-y divide-zinc-800/60">
+            <tr>
+              <td class="py-2 pr-4 font-mono text-zinc-100">
+                Coil near full length, top near the dashed line
+              </td>
+              <td class="py-2 text-zinc-400">
+                Light load / droop — corner unloaded (cresting, inside wheel
+                mid-corner, braking-unloaded rear).
+              </td>
+            </tr>
+            <tr>
+              <td class="py-2 pr-4 font-mono text-zinc-100">
+                Coil bunched, color amber/red
+              </td>
+              <td class="py-2 text-zinc-400">
+                Heavy compression — weight piled on this corner; red means
+                near the bump stop. Consider spring rate / ride height.
+              </td>
+            </tr>
+            <tr>
+              <td class="py-2 pr-4 font-mono text-zinc-100">
+                Bar mostly small / near center
+              </td>
+              <td class="py-2 text-zinc-400">
+                Slow damper movement — smooth surface, steady-state corner.
+                Where you want to live most of the time.
+              </td>
+            </tr>
+            <tr>
+              <td class="py-2 pr-4 font-mono text-zinc-100">
+                Bar slamming to the fast zone
+              </td>
+              <td class="py-2 text-zinc-400">
+                Fast damper events — kerbs, bumps, sharp transitions. Bump vs
+                rebound bias points at bump vs rebound damping.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
       <template #seeAlso>
-        Open
+        The whole-lap aggregate of the damper bar is the
         <NuxtLink
           to="/manual/replay#damper-histogram"
           class="text-green-300 hover:underline"
         >Damper velocity histogram</NuxtLink>
-        for the whole-lap aggregate version — the histogram shape is the
-        distribution of exactly the readout you see here, integrated over
-        the lap.
+        on /replay (distribution of this exact signal over the lap), and the
+        <NuxtLink
+          to="/manual/replay#damper-scatter"
+          class="text-green-300 hover:underline"
+        >position × velocity scatter</NuxtLink>
+        ties the coil's travel to the bar's velocity.
       </template>
     </ManualEntry>
   </main>

@@ -154,9 +154,9 @@ useHead({ title: 'Manual · Replay' })
           to="/tune/springs"
           class="text-green-300 hover:underline"
         >/tune/springs</NuxtLink>
-        · the real-time mm/s readout on
+        · the real-time damper bar on
         <NuxtLink
-          to="/manual/live#damper-readout"
+          to="/manual/live#spring-damper"
           class="text-green-300 hover:underline"
         >each CornerPanel</NuxtLink>
         is the same signal sampled instantaneously.
@@ -671,7 +671,7 @@ useHead({ title: 'Manual · Replay' })
     </ManualEntry>
 
     <p class="text-xs text-zinc-500">
-      The G-G scatter, friction circles, damper velocity readouts, and
+      The G-G scatter, friction circles, spring &amp; damper gauges, and
       input strips inside the live panels are described on
       <NuxtLink
         to="/manual/live"

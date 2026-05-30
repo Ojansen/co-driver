@@ -18,8 +18,8 @@ const surfaces: Surface[] = [
     slug: 'live',
     title: 'Live',
     page: '/live',
-    blurb: 'Real-time chassis state while you drive. Per-tire panels around a chassis G-G dot.',
-    graphs: ['G-G scatter', 'Friction circle (per tire)', 'Damper velocity readout', 'Suspension travel bar', 'Diagnostic chips']
+    blurb: 'Real-time chassis state while you drive. Per-tire panels around a center column of inputs and a chassis G-G dot.',
+    graphs: ['G-G scatter', 'Friction circle (per tire)', 'Spring & damper gauge (per corner)', 'Diagnostic chips', 'Inputs + attitude readouts']
   },
   {
     slug: 'replay',
