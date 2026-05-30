@@ -27,7 +27,7 @@ export const TRACE_BUFFER_SIZE = 1800
 /**
  * Push a sample into a fixed-size history. Mutates the array in place — the
  * caller's reactive ref then triggers re-renders. O(n) on overflow because of
- * shift(), but n=600 and we run at 60 Hz — negligible.
+ * shift(), but n = TRACE_BUFFER_SIZE (1800) and we run at 60 Hz — negligible.
  */
 export function pushSample(history: TraceSample[], sample: TraceSample, max = TRACE_BUFFER_SIZE): TraceSample[] {
   history.push(sample)

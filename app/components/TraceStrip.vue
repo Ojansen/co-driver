@@ -155,21 +155,23 @@ function latestValue(line: LineDef): number {
   return typeof raw === 'number' ? raw : 0
 }
 
-// Map a sample timestamp → buffer index by linear scan. n=1800 max so
-// this is fine; binary search would optimize hot paths only.
+// Map a sample timestamp → nearest buffer index. `history` is time-sorted, so
+// a binary search finds it in O(log n) — relevant when an anchor cursor is
+// active and this recomputes every frame over the full window (GH #12).
 function idxForTimestamp(tMs: number): number | null {
   const h = props.history
   if (h.length === 0) return null
-  let bestIdx = 0
-  let bestDiff = Infinity
-  for (let i = 0; i < h.length; i++) {
-    const d = Math.abs(h[i]!.t - tMs)
-    if (d < bestDiff) {
-      bestDiff = d
-      bestIdx = i
-    }
+  let lo = 0
+  let hi = h.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (h[mid]!.t < tMs) lo = mid + 1
+    else hi = mid
   }
-  return bestIdx
+  // `lo` is the first sample with t ≥ tMs; pick the nearer of it and its
+  // predecessor so we return the closest sample, not just the next one.
+  if (lo > 0 && Math.abs(h[lo - 1]!.t - tMs) < Math.abs(h[lo]!.t - tMs)) lo--
+  return lo
 }
 
 const anchorIdx = computed<number | null>(() => {
