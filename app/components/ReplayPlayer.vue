@@ -2,7 +2,7 @@
 import type { Telemetry } from '../../server/utils/decode'
 import { TRACE_BUFFER_SIZE } from '~/utils/trace'
 import { INPUT_TRACE_LINES, motorTraceLines } from '~/utils/trace-lines'
-import { binFrames } from '~/utils/dyno'
+import { emptyDynoState, ingestFrame, snapshot, type DynoCurve as Curve } from '~/utils/dyno'
 import { pointsFromFrames } from '~/utils/track-map'
 import { detectTrailBraking, trailBrakingBands } from '~/utils/trail-braking'
 import { damperHistogramsForLap, damperScatterForLap } from '~/utils/damper-velocity'
@@ -120,13 +120,33 @@ const motorLines = computed(() => {
   return motorTraceLines({ maxTorqueNm: mTq, maxPowerKw: mPw }, { torque: format.torque, power: format.power })
 })
 
-// Dyno curve grows as the lap plays — bin the lap frames from start up to
-// the current playback index. props.frames is the full lap; we slice as the
-// scrub advances.
-const dynoCurve = computed(() => {
+// Dyno curve grows as the lap plays. Re-binning props.frames.slice(0, end)
+// every tick was O(n) per frame → O(n²) over the lap, and the per-tick cost
+// climbed as the slice grew (visible stutter late in long laps). Instead keep
+// a streaming DynoState and ingest only the frames revealed since the last
+// tick — amortized O(1) while playing forward. A backward seek or lap change
+// can't un-do the running maxes, so those rebuild from scratch up to the
+// current point. snapshot() folds the ~RPM-bin buckets and is cheap.
+let dynoState = emptyDynoState()
+let dynoEnd = 0 // frames [0, dynoEnd) already ingested into dynoState
+let dynoFramesRef: Telemetry[] | null = null
+const dynoCurve = shallowRef<Curve>(snapshot(dynoState))
+
+watch([() => props.frames, currentIndex], () => {
+  const frames = props.frames
   const end = currentIndex.value + 1
-  return binFrames(props.frames.slice(0, end))
-})
+  if (frames !== dynoFramesRef || end < dynoEnd) {
+    dynoState = emptyDynoState()
+    dynoEnd = 0
+    dynoFramesRef = frames
+  }
+  for (let i = dynoEnd; i < end; i++) {
+    const f = frames[i]
+    if (f) ingestFrame(dynoState, f)
+  }
+  dynoEnd = end
+  dynoCurve.value = snapshot(dynoState)
+}, { immediate: true })
 
 // Track-map: compute once from the full lap (route doesn't change as you
 // scrub). The moving dot comes from currentFrame.position — no need to
