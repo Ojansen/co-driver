@@ -1,12 +1,6 @@
 import { EventEmitter } from 'node:events'
 import type { Telemetry } from './decode'
 
-export interface DebugFrame {
-  length: number
-  // hex of the last 8 bytes — useful for mapping any padding/unknown trail
-  tailHex: string
-}
-
 export type RecordingState
   = | { state: 'idle' }
     | {
@@ -69,7 +63,6 @@ export interface MeasurementEvent {
 
 interface ForzaEvents {
   telemetry: [Telemetry]
-  debug: [DebugFrame]
   recording_state: [RecordingState]
   tune_prompt: [TunePrompt]
   forza_status: [ForzaStatus]

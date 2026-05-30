@@ -45,11 +45,6 @@ export default defineNitroPlugin(() => {
       bumpForzaLastPacket(now)
     }
 
-    forzaBus.emit('debug', {
-      length: buf.length,
-      tailHex: buf.subarray(Math.max(0, buf.length - 8)).toString('hex')
-    })
-
     const t = adapter.decode(buf)
     if (!t) {
       if (!warnedShort) {

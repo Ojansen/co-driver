@@ -1,5 +1,5 @@
 import type { Telemetry } from '../../server/utils/decode'
-import type { DebugFrame, MeasurementBand, MeasurementEvent, RecordingState, TunePrompt } from '../../server/utils/forza-bus'
+import type { MeasurementBand, MeasurementEvent, RecordingState, TunePrompt } from '../../server/utils/forza-bus'
 import { mergeBands } from '../utils/measurement-bands'
 import { TRACE_BUFFER_SIZE, pushSample, type TraceSample } from '../utils/trace'
 
@@ -30,9 +30,8 @@ const MEASUREMENT_WINDOW_MS = 30_000
 type PauseSource = 'live' | 'user' | 'game'
 
 interface ServerMessage {
-  type: 'hello' | 'telemetry' | 'debug' | 'recording_state' | 'tune_prompt' | 'forza_status' | 'error' | 'measurement'
+  type: 'hello' | 'telemetry' | 'recording_state' | 'tune_prompt' | 'forza_status' | 'error' | 'measurement'
   t?: Telemetry
-  d?: DebugFrame
   message?: string
   // recording_state fields
   state?: 'idle' | 'recording'
@@ -66,7 +65,6 @@ const _state = {
   // this instead when you want the *current car*, not "what the wire said
   // this instant".
   lastLiveCar: shallowRef<{ ordinal: number, class: number, pi: number } | null>(null),
-  debug: shallowRef<DebugFrame | null>(null),
   connected: ref(false),
   forzaConnected: ref(false),
   forzaLastPacketAt: ref<number | null>(null),
@@ -98,6 +96,83 @@ const _state = {
   visibilityListenerAttached: false
 }
 
+// rAF-coalesced telemetry commit. The WS delivers ~60 Hz, but rendering the
+// live panels is driven per packet with no backpressure: a client that can't
+// finish a frame's work inside the paint budget falls progressively further
+// behind, so the lag grows over a long session rather than holding steady.
+// Queue incoming frames and commit once per animation frame —
+//   - `history`/`framesBuffer` keep EVERY queued sample, so trace resolution is
+//     unchanged in the common 1:1 (one packet per paint) case;
+//   - the reactive `telemetry` driver — which re-renders the heavy CornerView —
+//     updates at most once per paint;
+//   - the whole queue drains in one synchronous batch, so a burst (e.g. the
+//     server stalling on GC then flushing several frames at once) collapses to
+//     a single render instead of piling up.
+// rAF also self-throttles to the display refresh and never fires while the tab
+// is hidden, so the queue can't grow unbounded in the background.
+let _pendingFrames: Telemetry[] = []
+let _flushScheduled = false
+
+function flushTelemetry(): void {
+  _flushScheduled = false
+  const batch = _pendingFrames
+  if (batch.length === 0) return
+  _pendingFrames = []
+
+  for (const t of batch) {
+    if (t.car.ordinal > 0) {
+      _state.lastLiveCar.value = { ordinal: t.car.ordinal, class: t.car.class, pi: t.car.pi }
+    }
+
+    // Drive pause-source transitions from the game's race state. Run per frame
+    // (not just on the batch's last) so a transition inside a burst isn't lost.
+    // - live + race-off → upgrade to 'game' so panels freeze and DVR engages
+    // - game + race-on  → drop back to 'live' and clear any scrub
+    // - 'user' is sticky in both directions (manual pause survives game edges)
+    if (_state.pauseSource.value === 'live' && !t.isRaceOn) {
+      _state.pauseSource.value = 'game'
+    } else if (_state.pauseSource.value === 'game' && t.isRaceOn) {
+      _state.pauseSource.value = 'live'
+      _state.scrubIndex.value = null
+    }
+
+    // Push to BOTH buffers while genuinely live so their indices stay aligned.
+    // The instant the race goes off or the user pauses, both freeze.
+    if (t.isRaceOn && _state.pauseSource.value === 'live') {
+      const buf = _state.framesBuffer.value
+      buf.push(t)
+      while (buf.length > TRACE_BUFFER_SIZE) buf.shift()
+      pushSample(_state.history.value, markRaw({
+        t: t.timestampMs,
+        throttle: t.throttle,
+        brake: t.brake,
+        steer: t.steer,
+        yawRate: t.angularVelocity.y,
+        rpm: t.rpm,
+        rpmMax: t.rpmMax,
+        torqueNm: t.torque,
+        powerKw: t.power / 1000
+      }))
+    }
+  }
+
+  // Single render-driver update per paint: panels read the freshest frame.
+  _state.telemetry.value = batch[batch.length - 1]!
+  _state.hasReceivedFrame.value = true
+}
+
+function queueTelemetry(t: Telemetry): void {
+  _pendingFrames.push(t)
+  if (_flushScheduled) return
+  _flushScheduled = true
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(flushTelemetry)
+  } else {
+    // No rAF available (non-browser) — commit synchronously so nothing stalls.
+    flushTelemetry()
+  }
+}
+
 // Backgrounded tabs get aggressively throttled by browsers (Chrome caps the
 // main thread at ~1Hz after ~5 min hidden) while the server keeps sending
 // 60Hz telemetry. The backlog hammers the main thread on return — multi-
@@ -117,6 +192,9 @@ function attachVisibilityListener() {
       _state.framesBuffer.value = []
       _state.scrubIndex.value = null
       _state.measurements.value = { tbRolling: [], timeCoast: [], pedalOverlap: [], tbBands: [] }
+      // Drop any frames queued for the next paint so the strip doesn't flash a
+      // stale burst on return; a scheduled rAF will no-op on the empty batch.
+      _pendingFrames = []
       const ws = _state.ws
       if (ws) {
         _state.ws = null
@@ -168,46 +246,9 @@ function connect() {
       return
     }
     if (msg.type === 'telemetry' && msg.t) {
-      const t = markRaw(msg.t)
-      _state.telemetry.value = t
-      _state.hasReceivedFrame.value = true
-      if (t.car.ordinal > 0) {
-        _state.lastLiveCar.value = { ordinal: t.car.ordinal, class: t.car.class, pi: t.car.pi }
-      }
-
-      // Drive pause-source transitions from the game's race state.
-      // - live + race-off → upgrade to 'game' so panels freeze and DVR engages
-      // - game + race-on  → drop back to 'live' and clear any scrub
-      // - 'user' is sticky in both directions (manual pause survives game edges)
-      if (_state.pauseSource.value === 'live' && !t.isRaceOn) {
-        _state.pauseSource.value = 'game'
-      } else if (_state.pauseSource.value === 'game' && t.isRaceOn) {
-        _state.pauseSource.value = 'live'
-        _state.scrubIndex.value = null
-      }
-
-      // Push to BOTH buffers while genuinely live so their indices stay
-      // aligned. The instant the race goes off or the user pauses, both
-      // freeze — otherwise paused-game frames (or noise during a manual
-      // pause) would shift out the actual racing frames we want to scrub.
-      if (t.isRaceOn && _state.pauseSource.value === 'live') {
-        const buf = _state.framesBuffer.value
-        buf.push(t)
-        while (buf.length > TRACE_BUFFER_SIZE) buf.shift()
-        pushSample(_state.history.value, markRaw({
-          t: t.timestampMs,
-          throttle: t.throttle,
-          brake: t.brake,
-          steer: t.steer,
-          yawRate: t.angularVelocity.y,
-          rpm: t.rpm,
-          rpmMax: t.rpmMax,
-          torqueNm: t.torque,
-          powerKw: t.power / 1000
-        }))
-      }
-    } else if (msg.type === 'debug' && msg.d) {
-      _state.debug.value = msg.d
+      // Coalesce to the next animation frame (see flushTelemetry). markRaw so
+      // the deep telemetry object isn't proxied while it sits in the queue.
+      queueTelemetry(markRaw(msg.t))
     } else if (msg.type === 'recording_state' && msg.state) {
       if (msg.state === 'idle') {
         _state.recording.value = { state: 'idle' }
@@ -331,7 +372,6 @@ export function useTelemetry() {
   return {
     telemetry: _state.telemetry,
     lastLiveCar: _state.lastLiveCar,
-    debug: _state.debug,
     connected: _state.connected,
     forzaConnected: _state.forzaConnected,
     forzaLastPacketAt: _state.forzaLastPacketAt,

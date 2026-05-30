@@ -12,8 +12,6 @@ definePageMeta({
 })
 
 const {
-  telemetry,
-  debug,
   hasReceivedFrame,
   history,
   displayFrame,
@@ -218,10 +216,5 @@ const dvrSeconds = computed<number | null>(() => {
         {{ pauseSource === 'game' ? 'game paused' : 'manual pause' }}
       </span>
     </div>
-
-    <DebugPanel
-      :telemetry="telemetry"
-      :debug="debug"
-    />
   </div>
 </template>
