@@ -36,7 +36,7 @@ import { desc, eq } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
 import type { EventType } from './../db/schema'
 import type { Telemetry } from './decode'
-import { encodeFrames } from './frames-codec'
+import { decodeFrame, encodeFrame, encodeFramesAsync } from './frames-codec'
 import { forzaBus, type RecordingState, type TunePrompt } from './forza-bus'
 
 /** Buffer length (frames at 60 Hz) past which we treat the run as "started"
@@ -58,7 +58,15 @@ interface RecordingContext {
   startedAt: Date
   lastLapNumber: number
   lapInProgressFromStart: boolean
-  buffer: Telemetry[]
+  // Raw datagrams, not decoded frames — a flat byte buffer per frame keeps the
+  // live-set tiny on long un-lapped runs (point-to-point / free-roam), where
+  // this used to hold tens of thousands of deep Telemetry objects and the GC
+  // churn stalled the feed. Decoded back to frames once, at flush.
+  buffer: Buffer[]
+  // Game-clock bounds of the current buffer, tracked off the live decoded
+  // frame so the point-to-point fallback doesn't have to decode to time itself.
+  firstTimestampMs: number | null
+  lastTimestampMs: number
   lapsCompleted: number
 }
 
@@ -71,9 +79,20 @@ export class Recorder {
   // saw it valid and use that in start() — survives pauses cleanly.
   private lastLiveFrame: Telemetry | null = null
   private ctx: RecordingContext | null = null
+  // Lap flushes run async (gzip off the event loop) and fire mid-race, so they
+  // can't be awaited from the sync telemetry handler. Serialize them on a chain:
+  // this keeps laps inserted in completion order, avoids concurrent gzips
+  // competing on the thread pool, and gives stop() a single promise to await so
+  // every lap is persisted before it resolves. flushLap catches internally, so
+  // the chain never rejects.
+  private flushChain: Promise<void> = Promise.resolve()
 
   constructor() {
     forzaBus.on('telemetry', t => this.onTelemetry(t))
+  }
+
+  private queueFlush(sessionId: number, lapNumber: number, timeMs: number, records: Buffer[]): void {
+    this.flushChain = this.flushChain.then(() => this.flushLap(sessionId, lapNumber, timeMs, records))
   }
 
   getState(): RecordingState {
@@ -148,6 +167,8 @@ export class Recorder {
       // onTelemetry. Pre-event frames (driving to the event in freeroam,
       // lobby, countdown) never make it in.
       buffer: [],
+      firstTimestampMs: null,
+      lastTimestampMs: 0,
       lapsCompleted: 0
     }
 
@@ -168,13 +189,16 @@ export class Recorder {
     // whether a given session was multi-lap or point-to-point. Runtime
     // detection (did LapNumber ever tick?) is the only reliable signal.
     if (ctx.lapsCompleted === 0 && ctx.buffer.length >= 2) {
-      const first = ctx.buffer[0]!
-      const last = ctx.buffer[ctx.buffer.length - 1]!
-      const timeMs = Math.max(1, last.timestampMs - first.timestampMs)
-      const frames = ctx.buffer.slice()
-      void this.flushLap(ctx.sessionId, 1, timeMs, frames)
+      const timeMs = Math.max(1, ctx.lastTimestampMs - (ctx.firstTimestampMs ?? ctx.lastTimestampMs))
+      // `this.ctx` is already null (set at the top of stop), so handing the
+      // buffer straight to the async flush is safe — nothing else touches it.
+      this.queueFlush(ctx.sessionId, 1, timeMs, ctx.buffer)
       ctx.lapsCompleted = 1
     }
+
+    // Drain the flush chain (this fallback + any mid-race lap boundaries) so
+    // every lap is on disk before stop resolves.
+    await this.flushChain
 
     const endedAt = new Date()
     await db.update(schema.sessions)
@@ -219,6 +243,7 @@ export class Recorder {
       const runStarted = ctx.lapInProgressFromStart || ctx.buffer.length >= RUN_STARTED_MIN_FRAMES
       if (ctx.buffer.length > 0 && !runStarted) {
         ctx.buffer = []
+        ctx.firstTimestampMs = null
         ctx.lapInProgressFromStart = false
       }
       return
@@ -228,22 +253,29 @@ export class Recorder {
       if (ctx.lapInProgressFromStart && ctx.buffer.length > 0) {
         const completedLapNumber = ctx.lastLapNumber
         const lapTimeMs = Math.round(t.lap.last * 1000)
-        const frames = ctx.buffer.slice()
-        void this.flushLap(ctx.sessionId, completedLapNumber, lapTimeMs, frames)
+        // Hand off the current buffer to the async flush and start a fresh one
+        // — the old array is owned by flushLap from here.
+        this.queueFlush(ctx.sessionId, completedLapNumber, lapTimeMs, ctx.buffer)
         ctx.lapsCompleted += 1
       }
       ctx.lastLapNumber = t.lap.number
       ctx.buffer = []
+      ctx.firstTimestampMs = null
       ctx.lapInProgressFromStart = true
       forzaBus.emit('recording_state', this.getState())
     }
 
-    ctx.buffer.push(t)
+    if (ctx.firstTimestampMs === null) ctx.firstTimestampMs = t.timestampMs
+    ctx.lastTimestampMs = t.timestampMs
+    // Store a flat per-frame record, not the deep Telemetry object — one byte
+    // block per frame keeps the live-set small over a long run.
+    ctx.buffer.push(encodeFrame(t))
   }
 
-  private async flushLap(sessionId: number, lapNumber: number, timeMs: number, frames: Telemetry[]): Promise<void> {
+  private async flushLap(sessionId: number, lapNumber: number, timeMs: number, records: Buffer[]): Promise<void> {
     try {
-      const blob = encodeFrames(frames)
+      const frames = await this.decodeBuffered(records)
+      const blob = await encodeFramesAsync(frames)
       await db.insert(schema.laps).values({
         sessionId,
         lapNumber,
@@ -253,6 +285,18 @@ export class Recorder {
     } catch (err) {
       console.error('[recorder] failed to flush lap', err)
     }
+  }
+
+  // Decode the buffered per-frame records back into frames, yielding to the
+  // event loop periodically so a long run (tens of thousands of frames)
+  // doesn't block the 60 Hz feed at flush time.
+  private async decodeBuffered(records: Buffer[]): Promise<Telemetry[]> {
+    const frames: Telemetry[] = new Array<Telemetry>(records.length)
+    for (let i = 0; i < records.length; i++) {
+      frames[i] = decodeFrame(records[i]!)
+      if ((i & 2047) === 2047) await new Promise<void>(resolve => setImmediate(resolve))
+    }
+    return frames
   }
 }
 

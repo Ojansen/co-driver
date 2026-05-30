@@ -25,8 +25,11 @@
  * shape changes, bump VERSION and keep a decoder for the old one (legacy JSON
  * stays readable regardless).
  */
-import { gzipSync, gunzipSync } from 'node:zlib'
+import { gzipSync, gunzipSync, gzip as gzipCb } from 'node:zlib'
+import { promisify } from 'node:util'
 import type { Telemetry, Quad } from './decode'
+
+const gzipAsync = promisify(gzipCb)
 
 const MAGIC = Buffer.from('FZC1', 'ascii') // 0x46 0x5a 0x43 0x31
 const VERSION = 1
@@ -129,7 +132,13 @@ const BS_NULL_BASE = 6
 const N_BITSETS = BS_NULL_BASE + NULL_COLS.length
 
 // ---- encode ----------------------------------------------------------------
-export function encodeFrames(frames: Telemetry[]): Buffer {
+// Build the uncompressed columnar payload (header + f64 ts + f32 lanes +
+// bitsets). This is the fast part — typed-array fills. The gzip that follows is
+// the expensive step, so it's split out: `encodeFrames` gzips synchronously
+// (dev seeding, tests), `encodeFramesAsync` gzips off the event loop (the
+// recorder's hot flush path — a synchronous gzip there froze the 60 Hz feed at
+// every lap/stop boundary).
+function buildPayload(frames: Telemetry[]): Buffer {
   const n = frames.length
   const bb = Math.ceil(n / 8) // bytes per bitset
   const f64Bytes = n * 8
@@ -183,7 +192,103 @@ export function encodeFrames(frames: Telemetry[]): Buffer {
     }
   })
 
-  return Buffer.concat([MAGIC, gzipSync(payload)])
+  return payload
+}
+
+export function encodeFrames(frames: Telemetry[]): Buffer {
+  return Buffer.concat([MAGIC, gzipSync(buildPayload(frames))])
+}
+
+/** Same on-disk format as `encodeFrames`, but the gzip runs on libuv's thread
+ *  pool instead of blocking the event loop. Use this on any path that runs
+ *  while telemetry is streaming. */
+export async function encodeFramesAsync(frames: Telemetry[]): Promise<Buffer> {
+  const gz = await gzipAsync(buildPayload(frames))
+  return Buffer.concat([MAGIC, gz])
+}
+
+// ---- per-frame record (recorder in-memory buffer) --------------------------
+// The recorder buffers a live run frame-by-frame. Holding decoded `Telemetry`
+// objects means tens of thousands of deep, nested objects on a long run, and
+// the GC churn stalled the live feed. Instead it stores one of these flat,
+// ungzipped, fixed-width records per frame — a single Buffer (one byte block,
+// no nested objects) — and decodes them back to frames only at flush, off the
+// hot path. Row-wise (not columnar) since records are produced one at a time.
+// Reuses the same NUM_COLS schema + bitset layout as the blob, so precision and
+// null handling match the stored lap exactly.
+const FRAME_BITS_BYTES = Math.ceil(N_BITSETS / 8)
+const FRAME_TS_BYTES = 8
+const FRAME_VALS_OFFSET = FRAME_TS_BYTES
+const FRAME_BITS_OFFSET = FRAME_TS_BYTES + VAL_COUNT * 4
+const FRAME_RECORD_BYTES = FRAME_BITS_OFFSET + FRAME_BITS_BYTES
+
+export function encodeFrame(f: Telemetry): Buffer {
+  const ab = new ArrayBuffer(FRAME_RECORD_BYTES)
+  new Float64Array(ab, 0, 1)[0] = f.timestampMs
+
+  const vals = new Float32Array(ab, FRAME_VALS_OFFSET, VAL_COUNT)
+  let lane = 0
+  for (const col of NUM_COLS) {
+    const v = col.get(f)
+    for (let l = 0; l < col.width; l++) {
+      vals[lane + l] = v == null ? 0 : v[l]!
+    }
+    lane += col.width
+  }
+
+  const bits = new Uint8Array(ab, FRAME_BITS_OFFSET, FRAME_BITS_BYTES)
+  const setBit = (idx: number): void => {
+    bits[idx >> 3]! |= 1 << (idx & 7)
+  }
+  if (f.isRaceOn) setBit(BS_RACE)
+  if (f.rumble != null) {
+    setBit(BS_RUMBLE)
+    if (f.rumble.fl) setBit(BS_RUMBLE_BITS + 0)
+    if (f.rumble.fr) setBit(BS_RUMBLE_BITS + 1)
+    if (f.rumble.rl) setBit(BS_RUMBLE_BITS + 2)
+    if (f.rumble.rr) setBit(BS_RUMBLE_BITS + 3)
+  }
+  NULL_COLS.forEach((col, k) => {
+    if (col.get(f) != null) setBit(BS_NULL_BASE + k)
+  })
+
+  return Buffer.from(ab)
+}
+
+export function decodeFrame(rec: Buffer): Telemetry {
+  // Copy into a fresh ArrayBuffer so the f64/f32 views are correctly aligned
+  // regardless of where this Buffer's byteOffset landed.
+  const ab = rec.buffer.slice(rec.byteOffset, rec.byteOffset + rec.length)
+  const ts = new Float64Array(ab, 0, 1)[0]!
+  const vals = new Float32Array(ab, FRAME_VALS_OFFSET, VAL_COUNT)
+  const bits = new Uint8Array(ab, FRAME_BITS_OFFSET, FRAME_BITS_BYTES)
+  const getBit = (idx: number): boolean => (bits[idx >> 3]! & (1 << (idx & 7))) !== 0
+
+  const f: Decoded = { timestampMs: ts, isRaceOn: getBit(BS_RACE) }
+  f.rumble = getBit(BS_RUMBLE)
+    ? { fl: getBit(BS_RUMBLE_BITS + 0), fr: getBit(BS_RUMBLE_BITS + 1), rl: getBit(BS_RUMBLE_BITS + 2), rr: getBit(BS_RUMBLE_BITS + 3) }
+    : null
+
+  let lane = 0
+  let nullK = 0
+  for (const col of NUM_COLS) {
+    if (col.nullable) {
+      const present = getBit(BS_NULL_BASE + nullK)
+      nullK++
+      if (!present) {
+        col.set(f, null)
+        lane += col.width
+        continue
+      }
+    }
+    const v = new Array<number>(col.width)
+    for (let l = 0; l < col.width; l++) {
+      v[l] = vals[lane + l]!
+    }
+    col.set(f, v)
+    lane += col.width
+  }
+  return f as unknown as Telemetry
 }
 
 // ---- decode (format-sniffing) ----------------------------------------------
