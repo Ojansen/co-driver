@@ -6,11 +6,51 @@ personal tuning instrument; **measurement-not-prescription**; player-centric
 language; build and tune as separate layers; the loop is tune-and-measure
 with `/tune/*` and `/upgrade/*` as the only prescriptive surfaces.
 
-Last refreshed 2026-05-25 (post-manual).
+Last refreshed 2026-05-28 (post-tune-graphs).
 
 ---
 
 ## Recently shipped
+
+- **More telemetry graphs across `/tune`, `/replay`, `/compare`** —
+  commits `ab790e5` (tune-side foundation) + `216b60d` (replay/compare
+  mounts + manual). Eight new measurements on the existing histogram
+  pipeline, server-precomputed for `/tune` (raw frames stay on the
+  server) and client-side on replay/compare.
+  (1) **Ride-height histogram** on `/tune/ride-height` + replay
+  (whole lap) + `/compare` (A vs B). Bins normalized travel 0..1
+  droop→bottomed, with a 0.95 bottoming marker; the bottoming-band
+  readout pairs with the existing bottoming % on the page.
+  (2) **Damper position × velocity scatter** on `/tune/dampers` + replay
+  + `/compare`. ~1000 decimated dots/corner; reuses
+  `damperVelocityFromFrames` paired with normalized travel on X — the
+  "C" lean exposes bump/rebound coupling the histogram alone can't.
+  (3) **Per-channel distributions on the rest of `/tune/*`** — RPM
+  time-in-state on `/gearing` (paired with the dyno), per-corner tire
+  temp on `/tire-pressure` + `/alignment`, front−rear slip-angle balance
+  on `/anti-roll-bars` (signed, cornering-only at lat-G > 2 m/s²),
+  per-wheel slip-ratio on `/differential` (signed).
+  (4) **DynoCurve `mode="detailed"`** on `/tune/gearing` and replay —
+  powerband shading + shift marker + a scrub-tracking needle on replay.
+  Finished the intention `dyno.ts` already noted in `powerbandRange`.
+  (5) **Replay / compare extras** — RPM histogram and slip-angle balance
+  on replay; A vs B dyno, slip-angle balance, and tire-temp on compare.
+  Tire-temp / slip-ratio intentionally skipped on replay (CornerView
+  already shows them live, per the "don't duplicate ink" principle).
+  (6) **Reusable seam** — extracted shared `histogram-core.ts`
+  (`binValues()`) out of `damper-velocity.ts`; new `ChannelHistogram`
+  (single panel with signed-channel support, end labels) and
+  `QuadHistogram` (per-corner) components are the slot for future
+  channel histograms. `tune-data` response carries six new precomputed
+  aggregates; `GRAPH_SLUGS` set on the slug page replaces hardcoded
+  checks. Manual entries on `/manual/replay` + `/manual/compare` carry
+  the full reading guides ("droop" / "bottomed" defined inline; "C"
+  shape, understeer/oversteer band reads). 33 new unit tests (303
+  total).
+  **Divergence from WISHLIST text:** slip-angle balance shipped as a
+  histogram, not as a continuous trace alongside inputs — the aggregate
+  form is more philosophy-aligned (no per-frame chip risk), and the
+  underlying calc is reusable if the trace form is added later.
 
 - **Auto baseline tune (calibration pending)** — `app/utils/auto-tune.ts`
   + `app/components/AutoTuneGenerator.vue`, mounted on the build detail
@@ -255,8 +295,9 @@ philosophy grounds. Keep them here so they don't get re-proposed.
   that frame. *Renamed from "Bottoming events" — observational, not
   diagnostic; the user decides if kerb-riding is intentional.* Originally v4
   slice 4.
-- **Tire-temp distribution per lap** — temperature histogram (per tire),
-  independent of the map. Originally v4 slice 4.
+- ~~Tire-temp distribution per lap~~ — ✅ shipped (`ab790e5` + `216b60d`).
+  Per-corner 40-130 °C histograms on `/tune/tire-pressure`,
+  `/tune/alignment`, and `/compare` (A vs B). Originally v4 slice 4.
 - **Hardware shift light** — USB serial bridge from Nitro to RP2040 /
   Arduino; LEDs map to `rpm / rpmMax`. Originally v5. Optional; the screen
   view must never depend on hardware.
@@ -285,13 +326,16 @@ prescriptive coaching layer.
   channel (and per sector once sectors exist). One reusable component for
   session-detail and Compare. *(pro-tool standard — MoTeC i2, AiM Race
   Studio ship this as a default panel.)*
-- **Channel histograms per lap** — distribution view for throttle, brake,
-  lateral G, slip. Surfaces *how often* a value is hit, not just peaks.
-  Pairs with channels-report. *(pro-tool standard — MoTeC i2, AiM, Pi
-  Toolbox.)*
-- **Slip-angle balance channel** — front − rear slip-angle as a derived
-  trace, rendered alongside the input traces. Surfaces understeer/oversteer
-  *as a signal*, links to `/tune/anti-roll-bars` for the prescriptive read.
+- **Channel histograms per lap (remaining channels)** — distribution view
+  for throttle, brake, and lateral G. RPM, slip-ratio, slip-angle balance,
+  and tire-temp shipped (`ab790e5` + `216b60d`) via the reusable
+  `ChannelHistogram` / `QuadHistogram` slot; these three remain.
+  *(pro-tool standard — MoTeC i2, AiM, Pi Toolbox.)*
+- **Slip-angle balance trace** — front − rear slip-angle as a continuous
+  derived trace alongside the input traces (scrubbable on replay, syncs
+  with the input strip). The histogram form shipped (`ab790e5` +
+  `216b60d`) on `/tune/anti-roll-bars` + replay + `/compare`; same
+  underlying calc, this is the trace-rendering variant.
   *(pro-tool standard — MoTeC's predefined oversteer math channel.)*
 - **Brake-trace shape metrics** — per-corner peak pressure, release
   steepness, onset slope. Surface as numbers next to the corner; do not
@@ -310,12 +354,13 @@ prescriptive coaching layer.
   Sum-of-best-sectors footer under the predicted/last/best row.
   Session-scoped only; not yet a column in the lap table — separate
   iteration if that becomes useful.
-- **Ride-height histogram** on `/tune/ride-height` — reuses the
-  `computeHistogram()` machinery from `a6b167f`, fed
-  `suspensionMeters` instead of damper velocity. Single-pass swap;
-  ~30 LOC. Surfaces how much time the chassis spends at each ride-
-  height band over a session — pairs with the bottoming-percent
-  number already on the page.
+- ~~Ride-height histogram~~ — ✅ shipped (`ab790e5`). On
+  `/tune/ride-height` (last 5 laps server-precomputed), replay
+  (whole lap), and `/compare` (A vs B). Bins normalized travel 0..1
+  rather than raw meters (bounded, fixed bin edges work across every
+  car); the bottoming band matches the existing bottoming % on the
+  page. Refactored `computeHistogram` into a shared `binValues()` core
+  so both the damper and ride-height binners reuse the same machinery.
 - **Steering-to-yaw-rate balance** — kinematic understeer/oversteer
   angle from chassis motion: compare measured `angularVelocity.y`
   against the yaw rate the steer input would produce at the current
@@ -356,11 +401,11 @@ prescriptive coaching layer.
   `dafd0b4` (moved to top of stack at 2× height). Pairs with the new
   sector-delta and apex-speed tables on `/compare` for the
   "where time leaks" picture.
-- **Damper velocity scatter** (position-vs-velocity X-Y plot) — the
-  next-most-useful pro-tool suspension view after the histogram
-  (`a6b167f`). Suspension position on X, velocity on Y; a "C" shape
-  reveals imbalanced damping that the histogram alone can't surface.
-  Same velocity calc as the histogram, new visualization.
+- ~~Damper velocity scatter~~ — ✅ shipped (`ab790e5`). Position×velocity
+  X-Y plot on `/tune/dampers`, replay, and `/compare` (A vs B).
+  Decimated to ~1000 dots/corner; reuses `damperVelocityFromFrames`
+  paired with normalized travel on X. The "C" lean exposes bump/rebound
+  coupling the histogram alone can't surface.
 - **Whole-lap G-G scatter on `/replay` and `/compare`** — `/live`'s
   G-G dot now shows the rolling ~20 s envelope (`c7e8d75`). What's
   still open: render every frame of a completed lap as a faded dot so
