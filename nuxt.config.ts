@@ -6,7 +6,8 @@ export default defineNuxtConfig({
     '@nuxt/scripts',
     '@nuxt/test-utils',
     '@vueuse/nuxt',
-    '@nuxthub/core'
+    '@nuxthub/core',
+    '@tresjs/nuxt'
   ],
 
   devtools: {

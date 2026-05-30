@@ -26,6 +26,8 @@
     "@nuxt/test-utils": "4.0.0",
     "@nuxt/ui": "^4.5.1",
     "@nuxthub/core": "0.10.7",
+    "@tresjs/cientos": "^5.7.2",
+    "@tresjs/nuxt": "^5.6.1",
     "@vueuse/nuxt": "14.2.1",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
