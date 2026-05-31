@@ -96,7 +96,7 @@ watch(() => props.frame, (f) => {
     boostCar = f.car.ordinal
     hasBoost.value = false
   }
-  if (f.boost > BOOST_DETECT_PSI) hasBoost.value = true
+  if ((f.boost ?? 0) > BOOST_DETECT_PSI) hasBoost.value = true
 })
 </script>
 

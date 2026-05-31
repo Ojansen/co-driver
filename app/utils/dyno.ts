@@ -90,7 +90,7 @@ export function ingestFrame(state: DynoState, f: Telemetry, opts?: DynoBinOption
   if (f.rpm <= 0) return
 
   const rpmBin = Math.round(f.rpm / binWidth) * binWidth
-  const tq = f.torque
+  const tq = f.torque ?? 0
   const pw = f.power / 1000
   const bo = f.boost ?? 0
 

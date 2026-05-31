@@ -150,7 +150,7 @@ function flushTelemetry(): void {
         yawRate: t.angularVelocity.y,
         rpm: t.rpm,
         rpmMax: t.rpmMax,
-        torqueNm: t.torque,
+        torqueNm: t.torque ?? 0,
         powerKw: t.power / 1000
       }))
     }

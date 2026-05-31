@@ -306,7 +306,7 @@ export function summarizePower(frames: Telemetry[]): PowerSummary {
       peakPowerKw = pwKw
       rpmAtPeakPower = f.rpm
     }
-    if (f.torque > peakTorqueNm) peakTorqueNm = f.torque
+    if ((f.torque ?? 0) > peakTorqueNm) peakTorqueNm = f.torque ?? 0
   }
   return { peakPowerKw, peakTorqueNm, rpmAtPeakPower }
 }
@@ -325,9 +325,10 @@ export function summarizeBoost(frames: Telemetry[]): BoostSummary {
   let sum = 0
   let n = 0
   for (const f of frames) {
-    if (f.boost > peak) peak = f.boost
+    const boost = f.boost ?? 0
+    if (boost > peak) peak = boost
     if (f.throttle > 0.5) {
-      sum += f.boost
+      sum += boost
       n++
     }
   }

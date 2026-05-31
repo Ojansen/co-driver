@@ -25,8 +25,11 @@ export interface Telemetry {
 
   speedKmh: number
   power: number
-  torque: number
-  boost: number
+  // Torque and boost are Forza channels with no equivalent in some feeds
+  // (e.g. F1 exposes engine power but not flywheel torque, and has no
+  // turbo-boost gauge) — null when a game's adapter can't provide them.
+  torque: number | null
+  boost: number | null
 
   gear: number
   throttle: number

@@ -1,5 +1,6 @@
 import type { GameId } from '#shared/games'
 import { DEFAULT_GAME_ID, isGameId } from '#shared/games'
+import { f1Adapter } from './f1'
 import { fh5Adapter } from './fh5'
 import { fh6Adapter } from './fh6'
 import type { TelemetryAdapter } from './types'
@@ -13,7 +14,8 @@ export type { TelemetryAdapter } from './types'
  */
 const ADAPTERS: Partial<Record<GameId, TelemetryAdapter>> = {
   fh6: fh6Adapter,
-  fh5: fh5Adapter
+  fh5: fh5Adapter,
+  f1: f1Adapter
 }
 
 /**

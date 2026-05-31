@@ -11,7 +11,7 @@
  * `Telemetry` model.
  */
 
-export type GameId = 'fh6' | 'fh5' | 'fm'
+export type GameId = 'fh6' | 'fh5' | 'fm' | 'f1'
 
 /**
  * Feature areas that vary by game. The tuning stack (builds, tunes, events,
@@ -54,6 +54,14 @@ export const GAMES: readonly GameDef[] = [
     id: 'fm',
     label: 'Forza Motorsport',
     telemetry: false,
+    capabilities: { tuning: false }
+  },
+  {
+    id: 'f1',
+    label: 'F1 25 / F1 26',
+    // EA/Codemasters native UDP feed (no agent). Telemetry-only: the tuning
+    // stack is Forza-Horizon numerics and doesn't apply to F1.
+    telemetry: true,
     capabilities: { tuning: false }
   }
 ] as const

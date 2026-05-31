@@ -56,7 +56,7 @@ function projectF32(f: Telemetry): Telemetry {
     isRaceOn: f.isRaceOn,
     timestampMs: f.timestampMs,
     rpm: F(f.rpm), rpmMax: F(f.rpmMax), rpmIdle: F(f.rpmIdle),
-    speedKmh: F(f.speedKmh), power: F(f.power), torque: F(f.torque), boost: F(f.boost),
+    speedKmh: F(f.speedKmh), power: F(f.power), torque: f.torque == null ? null : F(f.torque), boost: f.boost == null ? null : F(f.boost),
     gear: F(f.gear), throttle: F(f.throttle), brake: F(f.brake), clutch: F(f.clutch), handBrake: F(f.handBrake), steer: F(f.steer),
     drivingLine: f.drivingLine == null ? null : F(f.drivingLine),
     aiBrakeDifference: f.aiBrakeDifference == null ? null : F(f.aiBrakeDifference),

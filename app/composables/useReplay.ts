@@ -55,7 +55,7 @@ export function useReplay(initialFrames: Telemetry[]) {
         yawRate: f.angularVelocity.y,
         rpm: f.rpm,
         rpmMax: f.rpmMax,
-        torqueNm: f.torque,
+        torqueNm: f.torque ?? 0,
         powerKw: f.power / 1000
       })
     }
