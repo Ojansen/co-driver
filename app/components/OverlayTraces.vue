@@ -6,54 +6,83 @@ import { formatDelta } from '~/utils/format'
 
 const { format } = useUnits()
 
+export interface OverlayLap {
+  frames: AlignFrame[]
+  label?: string
+  /** Legend / line color (any CSS color). Assigned by the caller's palette. */
+  color: string
+}
+
 const props = defineProps<{
-  framesA: AlignFrame[]
-  framesB: AlignFrame[]
-  labelA?: string
-  labelB?: string
+  /** Ordered list of laps to overlay. `laps[referenceIndex]` is the time
+   *  baseline every Δ line is measured against. */
+  laps: OverlayLap[]
+  /** Index into `laps` of the reference lap. Default 0. */
+  referenceIndex?: number
   /** distance bucket step in meters */
   step?: number
 }>()
-
-const COLOR_A = '#fafafa'
-const COLOR_B = '#fbbf24'
-const COLOR_DELTA_A_AHEAD = '#22c55e'
-const COLOR_DELTA_B_AHEAD = '#f59e0b'
 
 // Sync group key: every plot in this instance shares cursor + x-scale via uPlot.sync.
 const uid = Math.random().toString(36).slice(2, 9)
 const syncKey = `overlay-${uid}`
 
-const a = computed<AlignedSeries>(() => alignByDistance(props.framesA, props.step ?? 1))
-const b = computed<AlignedSeries>(() => alignByDistance(props.framesB, props.step ?? 1))
+const refIdx = computed(() => {
+  const i = props.referenceIndex ?? 0
+  return i >= 0 && i < props.laps.length ? i : 0
+})
 
-// Shared distance domain: the shorter of the two so we don't extrapolate.
-const sharedLen = computed(() => Math.min(a.value.distance.length, b.value.distance.length))
+const aligned = computed<AlignedSeries[]>(() =>
+  props.laps.map(l => alignByDistance(l.frames, props.step ?? 1))
+)
 
-// Shared x-array (distance in meters). uPlot wants a single x per plot — both
-// laps are already on the same distance grid via alignByDistance.
+// Shared distance domain: the shortest lap so we never extrapolate.
+const sharedLen = computed(() => {
+  const a = aligned.value
+  if (a.length === 0) return 0
+  let m = Infinity
+  for (const s of a) m = Math.min(m, s.distance.length)
+  return m === Infinity ? 0 : m
+})
+
+// Shared x-array (distance in meters). alignByDistance puts every lap on the
+// same fixed-step grid, so the reference lap's distances index all of them.
 const xs = computed<Float64Array>(() => {
   const n = sharedLen.value
+  const ref = aligned.value[refIdx.value] ?? aligned.value[0]
   const out = new Float64Array(n)
-  for (let i = 0; i < n; i++) out[i] = a.value.distance[i]!
+  for (let i = 0; i < n; i++) out[i] = ref ? ref.distance[i]! : i
   return out
 })
 
-// Delta (B.elapsedMs − A.elapsedMs) per shared bucket. Positive = A is ahead.
-const delta = computed<Float64Array>(() => {
+// Indices of the laps that get a Δ line — everything except the reference.
+const comparisonIdx = computed<number[]>(() =>
+  props.laps.map((_, i) => i).filter(i => i !== refIdx.value)
+)
+
+// Per-lap delta (lap.elapsedMs − ref.elapsedMs) on the shared grid. Positive =
+// this lap is *behind* the reference here. null for the reference itself.
+const deltas = computed<(Float64Array | null)[]>(() => {
   const n = sharedLen.value
-  const out = new Float64Array(n)
-  for (let i = 0; i < n; i++) out[i] = b.value.elapsedMs[i]! - a.value.elapsedMs[i]!
-  return out
+  const ref = aligned.value[refIdx.value]
+  return aligned.value.map((s, idx) => {
+    if (idx === refIdx.value || !ref) return null
+    const out = new Float64Array(n)
+    for (let i = 0; i < n; i++) out[i] = s.elapsedMs[i]! - ref.elapsedMs[i]!
+    return out
+  })
 })
 
-// Symmetric y-bound for the delta row, snapped to a "nice" number.
+// Symmetric y-bound for the delta row, snapped to a "nice" number, taken over
+// every comparison lap so they share one scale.
 const deltaBoundMs = computed(() => {
   let m = 0
-  const d = delta.value
-  for (let i = 0; i < d.length; i++) {
-    const v = Math.abs(d[i]!)
-    if (v > m) m = v
+  for (const d of deltas.value) {
+    if (!d) continue
+    for (let i = 0; i < d.length; i++) {
+      const v = Math.abs(d[i]!)
+      if (v > m) m = v
+    }
   }
   if (m === 0) return 1000
   const nice = [250, 500, 1000, 2000, 5000, 10000, 30000]
@@ -61,16 +90,18 @@ const deltaBoundMs = computed(() => {
   return Math.ceil(m / 1000) * 1000
 })
 
-const finalDeltaMs = computed(() => {
+function finalDelta(idx: number): number {
+  const d = deltas.value[idx]
   const n = sharedLen.value
-  return n > 0 ? delta.value[n - 1]! : 0
-})
+  return d && n > 0 ? d[n - 1]! : 0
+}
 
 // --- Row definitions -----------------------------------------------------
 // Each entry becomes one synced uPlot instance. Δ TIME leads the stack and
 // gets double height — it's the headline channel, the others are supporting
 // inputs the eye drops to when a delta spike calls for an explanation.
-type RowKey = 'throttle' | 'brake' | 'steer' | 'delta'
+type ChannelKey = 'throttle' | 'brake' | 'steer'
+type RowKey = ChannelKey | 'delta'
 interface Row {
   key: RowKey
   label: string
@@ -104,13 +135,15 @@ function buildData(row: Row): uPlot.AlignedData {
   const n = sharedLen.value
   if (n === 0) return [new Float64Array(0)] as unknown as uPlot.AlignedData
   if (row.key === 'delta') {
-    return [xs.value, delta.value] as unknown as uPlot.AlignedData
+    // One series per comparison lap, in comparisonIdx order.
+    const series = comparisonIdx.value.map(i => deltas.value[i] ?? new Float64Array(n))
+    return [xs.value, ...series] as unknown as uPlot.AlignedData
   }
-  return [
-    xs.value,
-    f32To64(a.value[row.key], n),
-    f32To64(b.value[row.key], n)
-  ] as unknown as uPlot.AlignedData
+  // One series per lap, in lap order. Pull the channel key out before the
+  // closure so TS keeps the narrowing (it can't see through the arrow fn).
+  const key: ChannelKey = row.key
+  const series = aligned.value.map(s => f32To64(s[key], n))
+  return [xs.value, ...series] as unknown as uPlot.AlignedData
 }
 
 function buildOpts(row: Row, isLast: boolean, width: number): uPlot.Options {
@@ -118,37 +151,19 @@ function buildOpts(row: Row, isLast: boolean, width: number): uPlot.Options {
   const series: uPlot.Series[] = [
     { label: 'd' },
     ...(isDelta
-      ? [{
-          label: 'Δ',
-          // Single line, two colours: green where A is ahead (positive,
-          // above zero in plot-y) and amber where B is ahead. Implemented
-          // as a vertical CanvasGradient that flips at the zero pixel —
-          // recomputed each draw so it stays correct when the y-scale
-          // changes (e.g. after a zoom).
-          stroke: (u: uPlot) => {
-            const top = u.bbox.top
-            const h = u.bbox.height
-            const bot = top + h
-            const yZero = u.valToPos(0, 'y', true)
-            if (yZero <= top) return COLOR_DELTA_B_AHEAD
-            if (yZero >= bot) return COLOR_DELTA_A_AHEAD
-            const grad = u.ctx.createLinearGradient(0, top, 0, bot)
-            const f = (yZero - top) / h
-            // Hard stop at the zero line — two abutting colour-stops give
-            // a sharp boundary instead of a fade.
-            grad.addColorStop(0, COLOR_DELTA_A_AHEAD)
-            grad.addColorStop(f, COLOR_DELTA_A_AHEAD)
-            grad.addColorStop(f, COLOR_DELTA_B_AHEAD)
-            grad.addColorStop(1, COLOR_DELTA_B_AHEAD)
-            return grad
-          },
-          width: 1.6,
+      ? comparisonIdx.value.map(i => ({
+          label: props.laps[i]?.label ?? `lap ${i + 1}`,
+          stroke: props.laps[i]?.color ?? '#fafafa',
+          width: 1.5,
           points: { show: false }
-        }]
-      : [
-          { label: 'A', stroke: COLOR_A, width: 1.4, points: { show: false } },
-          { label: 'B', stroke: COLOR_B, width: 1.4, points: { show: false } }
-        ])
+        }))
+      : props.laps.map((l, i) => ({
+          label: l.label ?? `lap ${i + 1}`,
+          stroke: l.color,
+          // The reference lap reads a touch heavier so it's findable in the bundle.
+          width: i === refIdx.value ? 1.9 : 1.3,
+          points: { show: false }
+        })))
   ]
 
   return {
@@ -208,12 +223,13 @@ function buildOpts(row: Row, isLast: boolean, width: number): uPlot.Options {
 }
 
 // Mid-line at zero for steer and delta rows: drawn directly on the canvas
-// so it sits behind the trace but ahead of the grid.
+// so it sits behind the trace but ahead of the grid. On the delta row the
+// zero line *is* the reference lap (every Δ is measured against it).
 function drawSteerZeroLine(u: uPlot): void {
   drawHorizontalLine(u, 0, '#3f3f46')
 }
 function drawDeltaZeroLine(u: uPlot): void {
-  drawHorizontalLine(u, 0, '#3f3f46')
+  drawHorizontalLine(u, 0, '#52525b')
 }
 function drawHorizontalLine(u: uPlot, yVal: number, color: string): void {
   const ctx = u.ctx
@@ -275,38 +291,52 @@ onBeforeUnmount(() => {
   destroyPlots()
 })
 
-// Rebuild when the data identity changes — sharedLen captures lap swap,
-// xs identity captures step change.
-watch([sharedLen, xs], () => {
+// Rebuild when the data identity changes — sharedLen captures lap add/remove,
+// xs identity captures step/reference change, laps.length + refIdx capture a
+// palette/reference reassignment that doesn't move sharedLen.
+watch([sharedLen, xs, () => props.laps.length, refIdx], () => {
   nextTick(() => renderPlots())
 })
 
 // --- Hover-value pills ----------------------------------------------------
+interface HoverLap {
+  color: string
+  label: string
+  isRef: boolean
+  throttle: number
+  brake: number
+  steer: number
+  delta: number | null
+}
 interface HoverValues {
   distance: number
-  rows: Array<{ key: RowKey, a: number, b: number | null }>
+  laps: HoverLap[]
 }
 const hoverValues = computed<HoverValues | null>(() => {
   const i = cursorIdx.value
   if (i === null || i < 0 || i >= sharedLen.value) return null
   return {
     distance: xs.value[i]!,
-    rows: [
-      { key: 'delta', a: delta.value[i]!, b: null },
-      { key: 'throttle', a: a.value.throttle[i]!, b: b.value.throttle[i]! },
-      { key: 'brake', a: a.value.brake[i]!, b: b.value.brake[i]! },
-      { key: 'steer', a: a.value.steer[i]!, b: b.value.steer[i]! }
-    ]
+    laps: props.laps.map((l, idx) => {
+      const s = aligned.value[idx]!
+      const d = deltas.value[idx]
+      return {
+        color: l.color,
+        label: l.label ?? `lap ${idx + 1}`,
+        isRef: idx === refIdx.value,
+        throttle: s.throttle[i]!,
+        brake: s.brake[i]!,
+        steer: s.steer[i]!,
+        delta: d ? d[i]! : null
+      }
+    })
   }
 })
 
-function valueFor(row: Row, side: 'a' | 'b'): string {
-  const hv = hoverValues.value
-  if (!hv) return ''
-  const entry = hv.rows.find(r => r.key === row.key)
-  if (!entry) return ''
-  if (side === 'b' && entry.b === null) return ''
-  return row.fmt(side === 'a' ? entry.a : entry.b!)
+function hoverValue(row: Row, lap: HoverLap): string | null {
+  if (row.key === 'delta') return lap.delta === null ? null : row.fmt(lap.delta)
+  const key: ChannelKey = row.key
+  return row.fmt(lap[key])
 }
 </script>
 
@@ -331,36 +361,35 @@ function valueFor(row: Row, side: 'a' | 'b'): string {
           reset zoom
         </button>
       </span>
-      <span class="flex flex-wrap items-center gap-4">
-        <span class="flex items-center gap-1.5">
+      <!-- Legend: one swatch per lap; the reference lap (the Δ baseline) is
+           tagged, and each comparison lap shows its finish-line Δ. -->
+      <span class="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span
+          v-for="(l, i) in laps"
+          :key="i"
+          class="flex items-center gap-1.5"
+          :class="i === refIdx ? 'text-zinc-200' : 'text-zinc-400'"
+        >
           <span
             class="inline-block h-1.5 w-3"
-            :style="{ background: COLOR_A }"
-          />A {{ labelA ? '· ' + labelA : '' }}
-        </span>
-        <span class="flex items-center gap-1.5">
+            :style="{ background: l.color }"
+          />
+          <span class="normal-case tracking-normal">{{ l.label ?? `lap ${i + 1}` }}</span>
           <span
-            class="inline-block h-1.5 w-3"
-            :style="{ background: COLOR_B }"
-          />B {{ labelB ? '· ' + labelB : '' }}
-        </span>
-        <span class="flex items-center gap-1.5">
-          <span class="text-zinc-500">Δ at finish</span>
+            v-if="i === refIdx"
+            class="rounded bg-zinc-700/60 px-1 text-[9px] tracking-[0.15em] text-zinc-200"
+          >ref</span>
           <span
-            class="rounded px-1.5 py-0.5 tabular-nums"
-            :style="{
-              background: finalDeltaMs > 0 ? COLOR_DELTA_A_AHEAD + '20' : COLOR_DELTA_B_AHEAD + '20',
-              color: finalDeltaMs > 0 ? COLOR_DELTA_A_AHEAD : COLOR_DELTA_B_AHEAD
-            }"
-          >
-            {{ formatDelta(finalDeltaMs) }} s
-          </span>
+            v-else
+            class="tabular-nums"
+            :style="{ color: l.color }"
+          >{{ formatDelta(finalDelta(i)) }}s</span>
         </span>
       </span>
     </header>
 
     <p class="mb-2 text-[10px] text-zinc-600">
-      drag to zoom · double-click to reset · move pointer to scrub
+      Δ vs reference · above zero = slower than ref · drag to zoom · double-click to reset · move pointer to scrub
     </p>
 
     <div
@@ -385,32 +414,20 @@ function valueFor(row: Row, side: 'a' | 'b'): string {
         </span>
         <span
           v-if="hoverValues"
-          class="pointer-events-none absolute right-1 top-1 z-10 flex gap-1 text-[10px] tabular-nums"
+          class="pointer-events-none absolute right-1 top-1 z-10 flex flex-wrap justify-end gap-1 text-[10px] tabular-nums"
         >
-          <span
-            v-if="row.key !== 'delta'"
-            class="rounded px-1.5 py-0.5"
-            :style="{ background: COLOR_A + '20', color: COLOR_A }"
+          <template
+            v-for="(lap, li) in hoverValues.laps"
+            :key="li"
           >
-            {{ valueFor(row, 'a') }}
-          </span>
-          <span
-            v-if="row.key !== 'delta'"
-            class="rounded px-1.5 py-0.5"
-            :style="{ background: COLOR_B + '20', color: COLOR_B }"
-          >
-            {{ valueFor(row, 'b') }}
-          </span>
-          <span
-            v-else
-            class="rounded px-1.5 py-0.5"
-            :style="{
-              background: (hoverValues.rows[0]?.a ?? 0) > 0 ? COLOR_DELTA_A_AHEAD + '20' : COLOR_DELTA_B_AHEAD + '20',
-              color: (hoverValues.rows[0]?.a ?? 0) > 0 ? COLOR_DELTA_A_AHEAD : COLOR_DELTA_B_AHEAD
-            }"
-          >
-            {{ valueFor(row, 'a') }}
-          </span>
+            <span
+              v-if="hoverValue(row, lap) !== null"
+              class="rounded px-1.5 py-0.5"
+              :style="{ background: lap.color + '20', color: lap.color }"
+            >
+              {{ hoverValue(row, lap) }}
+            </span>
+          </template>
         </span>
         <div
           ref="plotEls"

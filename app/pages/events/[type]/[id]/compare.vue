@@ -147,6 +147,11 @@ async function swapLaps(): Promise<void> {
 const COLOR_A = '#fafafa'
 const COLOR_B = '#fbbf24'
 
+// OverlayTraces takes a colored lap list; reference (A) and focus (B) reuse the
+// track-map legend colors so the two views read as the same two laps.
+const refColor = COLOR_A
+const focusColor = COLOR_B
+
 const trackTraces = computed(() => {
   const a = lapA.value
   const b = lapB.value
@@ -445,10 +450,11 @@ const diffRows = computed<SetupDiffRow[]>(() => {
 
     <OverlayTraces
       v-if="lapA && lapB"
-      :frames-a="lapA.frames"
-      :frames-b="lapB.frames"
-      :label-a="labelFor(lapA)"
-      :label-b="labelFor(lapB)"
+      :laps="[
+        { frames: lapA.frames, label: labelFor(lapA), color: refColor },
+        { frames: lapB.frames, label: labelFor(lapB), color: focusColor }
+      ]"
+      :reference-index="0"
     />
 
     <!-- Track-map overlay: both routes in their legend colors. The TrackMap
