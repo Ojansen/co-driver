@@ -58,8 +58,10 @@ function openSession(sessionId: number) {
   return navigateTo(`/events/${eventTypeKey}/${eventId}/${sessionId}`)
 }
 
-// Compare: pick two sessions whose best laps you want to overlay.
-// Cap at 2 — checking a third drops the oldest selection.
+// Compare: pick the best laps you want to overlay. The compare page overlays
+// every selected lap on the trace + track map; cap at the palette size so the
+// legend stays legible (checking past the cap drops the oldest selection).
+const MAX_COMPARE = 6
 const selectedLapIds = ref<number[]>([])
 
 function toggleSelected(lapId: number | null) {
@@ -70,21 +72,23 @@ function toggleSelected(lapId: number | null) {
     return
   }
   selectedLapIds.value.push(lapId)
-  if (selectedLapIds.value.length > 2) selectedLapIds.value.shift()
+  if (selectedLapIds.value.length > MAX_COMPARE) selectedLapIds.value.shift()
 }
 
 function isSelected(lapId: number | null): boolean {
   return lapId != null && selectedLapIds.value.includes(lapId)
 }
 
-const canCompare = computed(() => selectedLapIds.value.length === 2)
+const canCompare = computed(() => selectedLapIds.value.length >= 2)
 
 async function goCompare() {
   if (!canCompare.value) return
-  const [a, b] = [...selectedLapIds.value].sort((x, y) => x - y)
+  // Selection order is the leaderboard order (fastest first); the first becomes
+  // the reference, the second the focus.
+  const laps = [...selectedLapIds.value]
   await navigateTo({
     path: `/events/${eventTypeKey}/${eventId}/compare`,
-    query: { a, b }
+    query: { laps: laps.join(','), ref: laps[0]!, focus: laps[1]! }
   })
 }
 
@@ -181,7 +185,7 @@ async function confirmDelete() {
         </div>
         <div class="flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.2em]">
           <span class="text-zinc-500">
-            {{ selectedLapIds.length }}/2 selected
+            {{ selectedLapIds.length }} selected
           </span>
           <button
             v-if="canCompare"
