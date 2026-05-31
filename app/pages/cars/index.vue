@@ -112,18 +112,24 @@ async function confirmDelete() {
       </template>
     </PageHeader>
 
-    <div
+    <UAlert
       v-if="addError"
-      class="mb-6 card-error p-3 font-mono text-xs text-red-300"
-    >
-      {{ addError }}
-    </div>
-    <div
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :description="addError"
+      class="mb-6"
+      :ui="{ description: 'font-mono text-xs' }"
+    />
+    <UAlert
       v-if="deleteError"
-      class="mb-6 card-error p-3 font-mono text-xs text-red-300"
-    >
-      {{ deleteError }}
-    </div>
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :description="deleteError"
+      class="mb-6"
+      :ui="{ description: 'font-mono text-xs' }"
+    />
 
     <div
       v-if="cars && cars.length"
@@ -171,27 +177,25 @@ async function confirmDelete() {
             </div>
           </div>
         </NuxtLink>
-        <button
-          type="button"
+        <UButton
+          icon="i-lucide-trash-2"
+          color="neutral"
+          variant="ghost"
+          size="xs"
           title="Delete car"
           aria-label="Delete car"
-          class="absolute top-3 right-3 rounded-sm border border-transparent p-1.5 text-zinc-600 opacity-0 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300 focus:opacity-100 focus:outline-none group-hover:opacity-100"
+          class="absolute top-3 right-3 text-zinc-600 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-300 focus:opacity-100 group-hover:opacity-100"
           @click.stop.prevent="openDelete(car)"
-        >
-          <UIcon
-            name="i-lucide-trash-2"
-            class="h-4 w-4"
-          />
-        </button>
+        />
       </div>
     </div>
-    <div
+    <UEmpty
       v-else
-      class="card-dashed p-8 text-center font-mono text-sm text-zinc-500"
-    >
-      No cars yet. Cars appear here once you record a session in Forza
-      with telemetry flowing.
-    </div>
+      icon="i-lucide-car"
+      title="No cars yet"
+      description="Cars appear here once you record a session in Forza with telemetry flowing."
+      class="card-dashed font-mono"
+    />
 
     <ConfirmModal
       v-model:open="deleteOpen"
