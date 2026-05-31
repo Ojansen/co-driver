@@ -518,6 +518,92 @@ describe('computeAutoTune — build-aware fields (regression for session-19 bug)
   })
 })
 
+describe('computeAutoTune — rally surfaces stay inside in-game sliders', () => {
+  // Rally parts (dirt / cross-country) shift the spring + ride-height slider
+  // ranges. forza.tools' engine.js encodes two rules we mirror here:
+  //   springs: race rate × 0.5  ·  ride height: 5.8" floor.
+  // Before this fix, dirt emitted ~0.64× the road spring rate and a 5.0"
+  // ride height — both off the end of the in-game rally sliders.
+  const dials = { stiffness: 'medium' as const, balance: 'neutral' as const }
+
+  it('rally springs are ~half the road rate (forza.tools rally rule)', () => {
+    const road = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'road' } }).tune
+    const dirt = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'dirt' } }).tune
+    const cross = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'cross-country' } }).tune
+    // Dirt ≈ 0.5× road (rate ∝ f², freq × √0.5). Bracket loosely — the
+    // aero multiplier on the road build nudges the exact ratio.
+    const dirtRatio = (dirt.springsFront as number) / (road.springsFront as number)
+    expect(dirtRatio).toBeGreaterThan(0.42)
+    expect(dirtRatio).toBeLessThan(0.58)
+    // Cross-country is softer still.
+    expect(cross.springsFront).toBeLessThan(dirt.springsFront as number)
+  })
+
+  it('rally ride height holds the 5.8" floor; road stays low', () => {
+    const road = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'road' } }).tune
+    const dirt = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'dirt' } }).tune
+    const cross = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'cross-country' } }).tune
+    expect(road.rideHeightFront).toBeLessThan(5.8)
+    expect(dirt.rideHeightFront).toBeGreaterThanOrEqual(5.8)
+    expect(cross.rideHeightFront).toBeGreaterThanOrEqual(5.8)
+    // Ride height never exceeds the global 8.0" guard.
+    expect(cross.rideHeightFront).toBeLessThanOrEqual(8.0)
+  })
+
+  it('rally drops ARBs near minimum (soft, rear ≥ front) vs road', () => {
+    const road = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'road' } }).tune
+    const dirt = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'dirt' } }).tune
+    expect(dirt.arbFront).toBeLessThan(road.arbFront as number)
+    expect(dirt.arbRear).toBeLessThan(road.arbRear as number)
+    expect(dirt.arbFront as number).toBeLessThanOrEqual(12)
+    expect(dirt.arbRear as number).toBeGreaterThanOrEqual(dirt.arbFront as number)
+  })
+
+  it('rally softens bump toward the slider floor; rebound stays firmer', () => {
+    const road = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'road' } }).tune
+    const dirt = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'dirt' } }).tune
+    expect(dirt.bumpFront).toBeLessThan(road.bumpFront as number)
+    expect(dirt.bumpFront as number).toBeLessThan(dirt.reboundFront as number)
+  })
+
+  it('AWD rally diff locks harder (rear accel/decel) than road', () => {
+    const road = computeAutoTune({ build: AWD_BUILD, dials: { ...dials, surface: 'road' } }).tune
+    const dirt = computeAutoTune({ build: AWD_BUILD, dials: { ...dials, surface: 'dirt' } }).tune
+    expect(dirt.rearAccel).toBeGreaterThan(road.rearAccel as number)
+    expect(dirt.rearDecel).toBeGreaterThan(road.rearDecel as number)
+  })
+
+  it('rally rear camber sits in the consensus band (−0.4 to −0.8), flatter than road', () => {
+    const dirt = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'dirt' } }).tune
+    expect(dirt.camberRear as number).toBeLessThanOrEqual(-0.4)
+    expect(dirt.camberRear as number).toBeGreaterThanOrEqual(-0.8)
+  })
+
+  it('rally cuts downforce while keeping the F/R balance target', () => {
+    const road = computeAutoTune({ build: { ...AWD_BUILD, aero: 'both' }, dials: { ...dials, surface: 'road' } }).tune
+    const dirt = computeAutoTune({ build: { ...AWD_BUILD, aero: 'both' }, dials: { ...dials, surface: 'dirt' } }).tune
+    expect(dirt.aeroFront).toBeLessThan(road.aeroFront as number)
+    expect(dirt.aeroRear).toBeLessThan(road.aeroRear as number)
+    const bal = (t: typeof dirt) => (t.aeroFront as number) / ((t.aeroFront as number) + (t.aeroRear as number))
+    expect(bal(dirt)).toBeCloseTo(bal(road), 1)
+  })
+
+  it('springs stay inside the global 50–1500 lb/in guard across all dials', () => {
+    const heavy: BuildSettings = { weight: 1900, weightFrontPct: 55, drivetrain: 'awd', aero: 'both' }
+    for (const stiffness of STIFFNESS_OPTIONS) {
+      for (const balance of BALANCE_OPTIONS) {
+        for (const surface of SURFACE_OPTIONS) {
+          const { tune } = computeAutoTune({ build: heavy, dials: { stiffness, balance, surface } })
+          expect(tune.springsFront as number).toBeGreaterThanOrEqual(50)
+          expect(tune.springsFront as number).toBeLessThanOrEqual(1500)
+          expect(tune.springsRear as number).toBeGreaterThanOrEqual(50)
+          expect(tune.springsRear as number).toBeLessThanOrEqual(1500)
+        }
+      }
+    }
+  })
+})
+
 describe('autoTuneSlug', () => {
   it('generates a short kebab-case identifier', () => {
     expect(autoTuneSlug({ stiffness: 'medium', balance: 'neutral', surface: 'road' })).toBe('baseline-medium-neutral-road')
