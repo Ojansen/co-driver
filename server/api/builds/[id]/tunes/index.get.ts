@@ -26,6 +26,7 @@ export default defineEventHandler(async (event) => {
     .select({
       id: schema.tunes.id,
       name: schema.tunes.name,
+      settings: schema.tunes.settings,
       createdAt: schema.tunes.createdAt,
       sessionCount: sql<number>`(SELECT COUNT(*) FROM ${schema.sessions} WHERE ${schema.sessions.tuneId} = ${schema.tunes.id})`
     })
@@ -36,6 +37,7 @@ export default defineEventHandler(async (event) => {
   return rows.map(r => ({
     id: r.id,
     name: r.name,
+    settings: r.settings,
     createdAt: r.createdAt,
     sessionCount: Number(r.sessionCount) || 0
   }))

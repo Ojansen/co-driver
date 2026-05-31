@@ -30,16 +30,6 @@ const unitFmt = {
 }
 
 const sectionGroups = computed(() => tuneFieldsBySection(props.drivetrain))
-
-function filledCount(sectionKey: typeof TUNE_SECTIONS[number]): number {
-  const fields = sectionGroups.value[sectionKey] ?? []
-  let n = 0
-  for (const f of fields) {
-    const v = props.tune[f.id as keyof TuneSettings]
-    if (v !== null && v !== undefined && v !== '') n++
-  }
-  return n
-}
 </script>
 
 <template>
@@ -62,19 +52,15 @@ function filledCount(sectionKey: typeof TUNE_SECTIONS[number]): number {
       </button>
     </header>
 
-    <div class="space-y-2">
-      <details
+    <div class="space-y-5">
+      <div
         v-for="sectionKey in TUNE_SECTIONS"
         :key="sectionKey"
-        class="rounded-md border border-zinc-800/80 bg-zinc-950/30"
       >
-        <summary class="cursor-pointer select-none px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-zinc-400 hover:text-zinc-200">
+        <h3 class="mb-2 border-b border-zinc-800/80 pb-1 text-[10px] uppercase tracking-[0.2em] text-zinc-400">
           {{ SECTION_LABELS[sectionKey] }}
-          <span class="ml-2 text-zinc-600 normal-case tracking-normal">
-            {{ filledCount(sectionKey) }} / {{ (sectionGroups[sectionKey] ?? []).length }} filled
-          </span>
-        </summary>
-        <dl class="grid grid-cols-1 gap-x-6 gap-y-1.5 border-t border-zinc-800/80 p-3 text-sm sm:grid-cols-2">
+        </h3>
+        <dl class="grid grid-cols-1 gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
           <div
             v-for="field in (sectionGroups[sectionKey] ?? [])"
             :key="field.id"
@@ -88,7 +74,7 @@ function filledCount(sectionKey: typeof TUNE_SECTIONS[number]): number {
             </dd>
           </div>
         </dl>
-      </details>
+      </div>
     </div>
   </section>
 </template>

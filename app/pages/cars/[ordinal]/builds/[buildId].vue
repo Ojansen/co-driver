@@ -46,6 +46,7 @@ async function onBuildSaved() {
 interface TuneRow {
   id: number
   name: string
+  settings: TuneSettings
   createdAt: string
   sessionCount: number
 }
@@ -87,8 +88,16 @@ const newTuneName = ref('')
 const creating = ref(false)
 const tuneCreateError = ref<string | null>(null)
 const editingTuneId = ref<number | null>(null)
-const expandedTuneId = ref<number | null>(null)
-const tuneDetailCache = reactive<Record<number, { settings: TuneSettings, name: string }>>({})
+
+// Which tunes have their detail panel expanded (collapsed by default to keep
+// the page compact).
+const expandedTuneIds = ref<Set<number>>(new Set())
+function toggleTuneDetails(id: number) {
+  const next = new Set(expandedTuneIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedTuneIds.value = next
+}
 
 async function createTune() {
   const trimmed = newTuneName.value.trim()
@@ -112,44 +121,13 @@ async function createTune() {
   }
 }
 
-async function loadTuneDetail(id: number) {
-  if (tuneDetailCache[id]) return
-  try {
-    const t = await $fetch<{ name: string, settings: TuneSettings }>(`/api/tunes/${id}`)
-    tuneDetailCache[id] = { name: t.name, settings: t.settings ?? {} }
-  } catch (err) {
-    const e = err as { message?: string }
-    tuneCreateError.value = e.message ?? 'Failed to load tune'
-  }
-}
-
-async function startEdit(id: number) {
-  await loadTuneDetail(id)
-  editingTuneId.value = id
-  expandedTuneId.value = null
-}
-
-async function toggleExpand(id: number) {
-  if (expandedTuneId.value === id) {
-    expandedTuneId.value = null
-    return
-  }
-  await loadTuneDetail(id)
-  expandedTuneId.value = id
-}
-
-async function onTuneSaved(saved: { id: number }) {
+async function onTuneSaved() {
   editingTuneId.value = null
-  // Invalidate cached detail so the next expand re-fetches.
-  Reflect.deleteProperty(tuneDetailCache, saved.id)
   await refreshTunes()
 }
 
-async function onBaselineCreated(created: { id: number }) {
+async function onBaselineCreated() {
   await refreshTunes()
-  // Open the new baseline immediately so the user can review the seed values.
-  await loadTuneDetail(created.id)
-  expandedTuneId.value = created.id
 }
 
 // --- Tune delete -----------------------------------------------------------
@@ -175,8 +153,6 @@ async function confirmDeleteTune() {
     deleteOpen.value = false
     deleteTarget.value = null
     if (editingTuneId.value === target.id) editingTuneId.value = null
-    if (expandedTuneId.value === target.id) expandedTuneId.value = null
-    Reflect.deleteProperty(tuneDetailCache, target.id)
     await refreshTunes()
   } catch (err) {
     const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
@@ -296,8 +272,8 @@ async function confirmDeleteTune() {
             <TuneForm
               :build-id="buildId"
               :existing-tune-id="tune.id"
-              :initial-tune="tuneDetailCache[tune.id]?.settings ?? {}"
-              :initial-name="tuneDetailCache[tune.id]?.name ?? tune.name"
+              :initial-tune="tune.settings ?? {}"
+              :initial-name="tune.name"
               :drivetrain="drivetrain"
               @saved="onTuneSaved"
               @cancel="editingTuneId = null"
@@ -308,23 +284,26 @@ async function confirmDeleteTune() {
             class="card"
           >
             <div class="flex items-center justify-between gap-3 p-4">
-              <button
-                type="button"
-                class="flex-1 text-left font-mono"
-                @click="toggleExpand(tune.id)"
-              >
+              <div class="min-w-0 flex-1 font-mono">
                 <div class="text-zinc-100">
                   {{ tune.name }}
                 </div>
                 <div class="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-zinc-500">
                   {{ tune.sessionCount }} session{{ tune.sessionCount === 1 ? '' : 's' }} · created {{ relativeDate(tune.createdAt) }}
                 </div>
-              </button>
+              </div>
               <div class="flex shrink-0 gap-2">
                 <button
                   type="button"
                   class="rounded-sm border border-zinc-700 bg-zinc-900 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-200 transition-colors hover:border-zinc-500"
-                  @click="startEdit(tune.id)"
+                  @click="toggleTuneDetails(tune.id)"
+                >
+                  {{ expandedTuneIds.has(tune.id) ? 'Hide' : 'Details' }}
+                </button>
+                <button
+                  type="button"
+                  class="rounded-sm border border-zinc-700 bg-zinc-900 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-200 transition-colors hover:border-zinc-500"
+                  @click="editingTuneId = tune.id"
                 >
                   Edit
                 </button>
@@ -337,17 +316,20 @@ async function confirmDeleteTune() {
                 </button>
               </div>
             </div>
-            <div
-              v-if="expandedTuneId === tune.id && tuneDetailCache[tune.id]"
-              class="border-t border-zinc-800/80 p-4"
+            <UCollapsible
+              :open="expandedTuneIds.has(tune.id)"
+              @update:open="toggleTuneDetails(tune.id)"
             >
-              <TuneDisplay
-                :tune="tuneDetailCache[tune.id]!.settings"
-                :tune-name="tuneDetailCache[tune.id]!.name"
-                :drivetrain="drivetrain"
-                hide-edit
-              />
-            </div>
+              <template #content>
+                <div class="border-t border-zinc-800/80 p-4">
+                  <TuneDisplay
+                    :tune="tune.settings ?? {}"
+                    :drivetrain="drivetrain"
+                    hide-edit
+                  />
+                </div>
+              </template>
+            </UCollapsible>
           </div>
         </li>
       </ul>
