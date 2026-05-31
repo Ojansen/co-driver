@@ -65,12 +65,21 @@ const UNSPRUNG_RATIO = 0.13
  *  (forums.forza.net basic-formula-for-spring-rate): soft 1.98, moderate
  *  2.42, stiff 2.80 Hz. With STIFFNESS_MUL = 0.85/1.0/1.15 applied on top,
  *  road lands at 2.06/2.42/2.78 — within 0.02 Hz of all three community
- *  targets. Dirt and cross-country drop proportionally (~×0.80 / ~×0.70)
- *  into the rally band (DRTuned 1.5–2.0 Hz) for compliance. */
+ *  targets.
+ *
+ *  Dirt and cross-country are RALLY surfaces. forza.tools' engine.js models
+ *  rally springs as "race rate × 0.5" (rally suspension's spring slider tops
+ *  out far below the race kit's). Since spring rate ∝ f², halving the rate
+ *  means freq × √0.5 ≈ road × 0.71. Dirt lands at 1.71 Hz (= road × 0.71 ⇒
+ *  ½ the road rate, the forza.tools rally anchor); cross-country drops to
+ *  1.53 Hz (≈ road × 0.63 ⇒ ~0.40× the road rate) for maximum compliance
+ *  over rough terrain. The previous 1.94 / 1.69 left rally springs at
+ *  0.64× / 0.49× the road rate — stiff enough to clip past the rally
+ *  spring-slider max in-game (the bug this fixes). */
 const FREQ_FRONT_BASE: Record<Surface, number> = {
   'road': 2.42,
-  'dirt': 1.94,
-  'cross-country': 1.69
+  'dirt': 1.71,
+  'cross-country': 1.53
 }
 const FREQ_REAR_OFFSET = 0.2
 
@@ -94,6 +103,13 @@ const AERO_FREQ_MUL: Record<string, number> = {
 const DAMPER_BUMP_BASE = 8
 const DAMPER_REBOUND_BASE = 11
 
+/** Rally bump base on the 1–20 scale. Rally/off-road wants bump near the
+ *  slider floor (community + ForzaTune: "soak up ruts and jumps, don't
+ *  bounce"); engine.js pins rally bump at ~1–3.4. Rebound is left on
+ *  DAMPER_REBOUND_BASE — every source keeps rally rebound firmer than bump,
+ *  front-biased, with extra at the rear (which the mass scaling provides). */
+const RALLY_DAMPER_BUMP_BASE = 3
+
 /** ARB baselines on FH's 1–65 scale at neutral dials, by drivetrain.
  *  Anchored to the forza.tools (FH6) calculator: RWD wants a stiffer rear
  *  to free rotation; FWD wants a very soft front so the inside front isn't
@@ -106,6 +122,14 @@ const ARB_BASE: Record<string, { front: number, rear: number }> = {
   fwd: { front: 12, rear: 32 }
 }
 const ARB_BASE_DEFAULT: { front: number, rear: number } = { front: 22, rear: 30 }
+
+/** Rally ARB baseline — near minimum, rear slightly stiffer than front.
+ *  Consensus across ForzaTune, forzafire, and the community: keep both bars
+ *  soft on loose surfaces so each wheel follows the terrain independently,
+ *  and tune balance with the diff and dampers instead (engine.js goes to a
+ *  flat 6/6). The drivetrain baselines and the weight-distribution shift do
+ *  NOT apply on rally surfaces. Stiffness / balance dials still scale on top. */
+const RALLY_ARB: { front: number, rear: number } = { front: 8, rear: 11 }
 
 /** Front ARB shift per 1 % off 50 / 50 weight distribution, by drivetrain.
  *  RWD with a front-heavy build adds front ARB to fight push; FWD does
@@ -141,13 +165,34 @@ const REFERENCE_CORNER_LOAD_R = REFERENCE_SPRUNG_R + REFERENCE_UNSPRUNG_PER_CORN
  *  rather than the dramatic ±30% that linear scaling would produce. */
 const TIRE_PRESSURE_LOAD_EXP = 0.4
 
-/** Ride height (inches) by surface — set near the practical minimum for road,
- *  more clearance for dirt / cross-country. */
+/** Ride height (inches) by surface. Road sits near the practical minimum.
+ *  Rally surfaces sit HIGH — every source (ForzaTune, DiamondLobby, QuickTune,
+ *  forzafire) puts rally near the top of its range (70–80%+, cross-country at
+ *  max) for travel over rough terrain; engine.js positions it at ~95%. We hold
+ *  a 5.8" floor (RALLY_RIDE_HEIGHT_FLOOR_IN) and clamp to the 8.0" global max. */
 const RIDE_HEIGHT_IN: Record<Surface, number> = {
   'road': 4.0,
-  'dirt': 5.0,
-  'cross-country': 6.0
+  'dirt': 7.0,
+  'cross-country': 7.8
 }
+
+/** Global ride-height guard (inches), from forza.tools' engine.js
+ *  `clamp(rhFront, 2.0, 8.0)`. Rally suspension raises the usable minimum to
+ *  5.8" ("cars need travel over rough surfaces" — engine.js), applied as a
+ *  floor on rally surfaces so the seed never lands under the in-game slider. */
+const RIDE_HEIGHT_MIN_IN = 2.0
+const RIDE_HEIGHT_MAX_IN = 8.0
+const RALLY_RIDE_HEIGHT_FLOOR_IN = 5.8
+
+/** Global spring-rate guard (lb/in), from forza.tools' engine.js
+ *  `clamp(rate, 50, 1500)`. A backstop only — the frequency method should land
+ *  well inside this; without it the tool emitted spring values with no bound
+ *  at all (which is how rally springs escaped the slider in the first place). */
+const SPRING_MIN_LB_IN = 50
+const SPRING_MAX_LB_IN = 1500
+
+/** Surfaces that imply rally / off-road suspension parts. */
+const RALLY_SURFACES: readonly Surface[] = ['dirt', 'cross-country']
 
 const CAMBER_FRONT_BASE: Record<Surface, number> = {
   'road': -1.8,
@@ -155,14 +200,21 @@ const CAMBER_FRONT_BASE: Record<Surface, number> = {
   'cross-country': -0.3
 }
 const CAMBER_REAR_OFFSET = 0.6 // rear less negative than front
+/** Rear camber sits closer to the front on rally — dirt rewards a flatter
+ *  contact patch, and the consensus rear range (−0.5 to −0.8) is much nearer
+ *  the front than the road offset would give (the old 0.6 left the rear at
+ *  only −0.2 on dirt, below every source's rally rear-camber band). */
+const CAMBER_REAR_OFFSET_RALLY = 0.3
 
 // Tire pressures anchored to FH6's 0.1-bar step so the value lands exactly on
 // a slider notch in metric. Stored as canonical psi via BAR_TO_PSI.
+// Rally pressures sit in the QuickTune / forzafire mainstream band (~25 psi,
+// modestly below road) rather than the DiamondLobby grip-extreme (10–15 psi).
 const BAR_TO_PSI = 14.5038
 const TIRE_PRESSURE_BAR: Record<Surface, number> = {
   'road': 2.0,
-  'dirt': 1.5,
-  'cross-country': 1.2
+  'dirt': 1.8,
+  'cross-country': 1.7
 }
 
 /** Caster (°) lerped on total weight in lb. From forza.tools' engine.js —
@@ -200,6 +252,11 @@ const AERO_TARGET_BALANCE: Record<string, number> = {
 }
 const AERO_TARGET_BALANCE_DEFAULT = 0.43
 const AERO_BALANCE_DIAL_SHIFT = 0.03 // per balance click; tight ⇒ more rear-biased
+/** Rally downforce multiplier. Off-road speeds rarely make downforce worth
+ *  the PI (forzafire: race wings are "wasted PI" over jumps; engine.js runs
+ *  rally at ~30% of range). We halve the magnitude but keep the same F/R
+ *  balance target so the seed stays drivetrain-correct, just lighter. */
+const RALLY_AERO_MUL = 0.5
 
 // --- HELPERS --------------------------------------------------------------
 
@@ -322,6 +379,13 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   // for the incomplete-build preview (diff stays undefined and gets gated).
   const drivetrain = typeof build.drivetrain === 'string' ? build.drivetrain : null
 
+  // Rally surfaces (dirt / cross-country) imply rally / off-road suspension
+  // parts, which flip the setup philosophy on several systems below: near-min
+  // ARBs, soft bump, raised ride height, flatter rear camber, a traction-first
+  // diff, and minimal aero. Springs / ride-height softening is handled in
+  // their own surface-keyed tables.
+  const isRally = RALLY_SURFACES.includes(dials.surface)
+
   // Springs — frequency method. Aero package scales the target frequency:
   // a car with downforce wants to keep ride height stable under high-speed
   // load and so wants stiffer springs than its mass-and-surface peers.
@@ -332,8 +396,10 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
     // Tight ⇒ stiffer front, softer rear (load to front to reduce rotation).
     const freqF = freqFBase * stiff * aeroMul * (1 + 0.05 * bal)
     const freqR = freqRBase * stiff * aeroMul * (1 - 0.05 * bal)
-    tune.springsFront = Math.round(springRateLbIn(sprungF, freqF))
-    tune.springsRear = Math.round(springRateLbIn(sprungR, freqR))
+    // Clamp to the engine.js global spring guard so the seed never lands
+    // outside any in-game slider, regardless of build mass / dial extremes.
+    tune.springsFront = Math.round(clamp(springRateLbIn(sprungF, freqF), SPRING_MIN_LB_IN, SPRING_MAX_LB_IN))
+    tune.springsRear = Math.round(clamp(springRateLbIn(sprungR, freqR), SPRING_MIN_LB_IN, SPRING_MAX_LB_IN))
   }
   // (When weight or weightFrontPct is missing, blockers prevents submission;
   // springs are left undefined in the preview.)
@@ -346,9 +412,12 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   const damperScaleR = Math.sqrt(sprungR / REFERENCE_SPRUNG_R)
 
   // Dampers — stiffness drives magnitude; build mass drives per-axle scaling;
-  // balance shifts F/R by a fixed click. FH6 step is 0.1.
-  const bumpF = DAMPER_BUMP_BASE * stiff * damperScaleF
-  const bumpR = DAMPER_BUMP_BASE * stiff * damperScaleR
+  // balance shifts F/R by a fixed click. FH6 step is 0.1. Rally surfaces drop
+  // bump near the slider floor (soak up ruts / jumps) while rebound stays on
+  // the road base — firmer than bump, with extra at the rear from mass scaling.
+  const bumpBase = isRally ? RALLY_DAMPER_BUMP_BASE : DAMPER_BUMP_BASE
+  const bumpF = bumpBase * stiff * damperScaleF
+  const bumpR = bumpBase * stiff * damperScaleR
   const rebF = DAMPER_REBOUND_BASE * stiff * damperScaleF
   const rebR = DAMPER_REBOUND_BASE * stiff * damperScaleR
   tune.bumpFront = step1(clamp(bumpF + bal, 1, 20))
@@ -362,22 +431,31 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   // Rear is baseline-only — body roll moment is dominated by track width
   // and CoG height (the per-car slider range already encodes that), not
   // total mass. Auto-tune's stiffness and balance dials still apply on top.
-  const arbBase = ARB_BASE[drivetrain ?? ''] ?? ARB_BASE_DEFAULT
-  const arbFactor = ARB_WEIGHT_SHIFT_FACTOR[drivetrain ?? ''] ?? 0
+  // On rally surfaces, ignore the drivetrain baseline + weight-distribution
+  // shift entirely: both bars go near-minimum (RALLY_ARB) so each wheel
+  // follows the terrain, and balance is carried by the diff and dampers.
+  const arbBase = isRally ? RALLY_ARB : (ARB_BASE[drivetrain ?? ''] ?? ARB_BASE_DEFAULT)
+  const arbFactor = isRally ? 0 : (ARB_WEIGHT_SHIFT_FACTOR[drivetrain ?? ''] ?? 0)
   const arbDistPct = distPct !== null ? distPct : 50
   const arbFrontShifted = arbBase.front + (arbDistPct - 50) * arbFactor
   tune.arbFront = step1(clamp(arbFrontShifted * stiff * (1 + 0.10 * bal), 1, 65))
   tune.arbRear = step1(clamp(arbBase.rear * stiff * (1 - 0.10 * bal), 1, 65))
 
-  // Ride height — surface-driven; same front/rear for v1.
-  const rh = RIDE_HEIGHT_IN[dials.surface]
+  // Ride height — surface-driven; same front/rear for v1. Clamp to the
+  // engine.js global guard (2.0–8.0"), and on rally surfaces hold a 5.8"
+  // floor — rally suspension raises the in-game minimum, so a lower value
+  // lands off the bottom of the slider.
+  const rhFloor = isRally ? RALLY_RIDE_HEIGHT_FLOOR_IN : RIDE_HEIGHT_MIN_IN
+  const rh = clamp(RIDE_HEIGHT_IN[dials.surface], rhFloor, RIDE_HEIGHT_MAX_IN)
   tune.rideHeightFront = rh
   tune.rideHeightRear = rh
 
   // Alignment — FH6 step is 0.1° everywhere. Display pads to 2 decimals.
+  // Rally keeps the rear nearer the front (flatter contact patch on loose).
   const camberF = CAMBER_FRONT_BASE[dials.surface]
+  const rearCamberOffset = isRally ? CAMBER_REAR_OFFSET_RALLY : CAMBER_REAR_OFFSET
   tune.camberFront = step1(clamp(camberF, -5, 5))
-  tune.camberRear = step1(clamp(camberF + CAMBER_REAR_OFFSET, -5, 5))
+  tune.camberRear = step1(clamp(camberF + rearCamberOffset, -5, 5))
   // Caster — lerped on total weight (lb). Heavier cars want more caster
   // for stability and steering load; lighter cars stay lower for nimbler
   // turn-in. When weight is missing, fall back to the reference build.
@@ -408,17 +486,21 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   tune.tirePressureRear = Number(tpR.toFixed(4))
 
   // Differential — drivetrain-gated. Tight ⇒ more lock (more traction bias).
+  // Rally surfaces want a traction-first diff: more accel lock to put power
+  // down on loose surfaces, and more decel lock for stability under
+  // trail-braking. AWD numbers track the forzafire FH6 dirt band (rear accel
+  // 55-70, rear decel 20-25, center 65-75% rear); FWD/RWD move the same way.
   if (drivetrain === 'fwd') {
-    tune.frontAccel = clamp(Math.round(25 + 5 * bal), 0, 100)
-    tune.frontDecel = 0
+    tune.frontAccel = clamp(Math.round((isRally ? 30 : 25) + 5 * bal), 0, 100)
+    tune.frontDecel = isRally ? 10 : 0
   } else if (drivetrain === 'rwd') {
-    tune.rearAccel = clamp(Math.round(50 + 5 * bal), 0, 100)
-    tune.rearDecel = 20
+    tune.rearAccel = clamp(Math.round((isRally ? 58 : 50) + 5 * bal), 0, 100)
+    tune.rearDecel = isRally ? 25 : 20
   } else if (drivetrain === 'awd') {
-    tune.frontAccel = 30
+    tune.frontAccel = isRally ? 35 : 30
     tune.frontDecel = 10
-    tune.rearAccel = 50
-    tune.rearDecel = 15
+    tune.rearAccel = isRally ? 60 : 50
+    tune.rearDecel = isRally ? 22 : 15
     // % rear (more rear ⇒ more RWD-like behavior).
     tune.centerBalance = clamp(Math.round(65 - 5 * bal), 30, 90)
   }
@@ -442,14 +524,17 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   //   wing-only:     rear aero adds rear grip   → tight dial ↑ aeroRear
   //   both:          anchor front, derive rear to hit drivetrain target;
   //                  tight dial shifts target toward more-rear-biased
+  // Rally surfaces halve the magnitude (downforce barely helps off-road) but
+  // keep the same F/R balance target, so the seed stays drivetrain-correct.
+  const aeroMag = isRally ? RALLY_AERO_MUL : 1
   if (aero === 'splitter') {
-    tune.aeroFront = Math.max(0, Math.round(AERO_FRONT_BASE_LB - 10 * bal))
+    tune.aeroFront = Math.max(0, Math.round((AERO_FRONT_BASE_LB - 10 * bal) * aeroMag))
   } else if (aero === 'wing') {
-    tune.aeroRear = Math.max(0, Math.round(AERO_REAR_WING_ONLY_LB + 10 * bal))
+    tune.aeroRear = Math.max(0, Math.round((AERO_REAR_WING_ONLY_LB + 10 * bal) * aeroMag))
   } else if (aero === 'both') {
     const baseTarget = AERO_TARGET_BALANCE[drivetrain ?? ''] ?? AERO_TARGET_BALANCE_DEFAULT
     const target = clamp(baseTarget - AERO_BALANCE_DIAL_SHIFT * bal, 0.2, 0.8)
-    const f = AERO_FRONT_BASE_LB
+    const f = AERO_FRONT_BASE_LB * aeroMag
     const r = f * (1 - target) / target
     tune.aeroFront = Math.max(0, Math.round(f))
     tune.aeroRear = Math.max(0, Math.round(r))
