@@ -32,6 +32,17 @@ watch(() => props.currentTuneId, (v) => {
   selected.value = v ?? null
 })
 
+const tuneItems = computed(() => (tunes.value ?? []).map(t => ({
+  label: `${t.name} (${t.sessionCount} session${t.sessionCount === 1 ? '' : 's'})`,
+  value: t.id
+})))
+
+// USelect's model rejects null — bridge null <-> undefined.
+const selectedModel = computed({
+  get: () => selected.value ?? undefined,
+  set: (v: number | undefined) => { selected.value = v ?? null }
+})
+
 function attach() {
   if (!selected.value || props.disabled) return
   emit('attach', selected.value)
@@ -60,30 +71,21 @@ function attach() {
       v-else-if="tunes && tunes.length"
       class="flex items-center gap-2"
     >
-      <select
-        v-model="selected"
+      <USelect
+        v-model="selectedModel"
+        :items="tuneItems"
+        placeholder="— select a tune —"
         :disabled="disabled"
-        class="flex-1 rounded-sm border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-      >
-        <option :value="null">
-          — select a tune —
-        </option>
-        <option
-          v-for="t in tunes"
-          :key="t.id"
-          :value="t.id"
-        >
-          {{ t.name }} ({{ t.sessionCount }} session{{ t.sessionCount === 1 ? '' : 's' }})
-        </option>
-      </select>
-      <button
-        type="button"
+        class="flex-1 text-sm"
+      />
+      <UButton
+        label="Attach"
+        color="primary"
+        variant="subtle"
         :disabled="disabled || !selected || selected === currentTuneId"
-        class="rounded-sm border border-green-500/60 bg-green-500/10 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.2em] text-green-300 transition-colors hover:bg-green-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+        class="font-mono text-[11px] uppercase tracking-[0.2em]"
         @click="attach"
-      >
-        Attach
-      </button>
+      />
     </div>
     <div
       v-else

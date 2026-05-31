@@ -55,6 +55,10 @@ const SURFACE_LABELS: Record<Surface, string> = {
   'cross-country': 'Cross-country'
 }
 
+const stiffnessItems = STIFFNESS_OPTIONS.map(o => ({ label: STIFFNESS_LABELS[o], value: o }))
+const balanceItems = BALANCE_OPTIONS.map(o => ({ label: BALANCE_LABELS[o], value: o }))
+const surfaceItems = SURFACE_OPTIONS.map(o => ({ label: SURFACE_LABELS[o], value: o }))
+
 const preview = computed(() => computeAutoTune({
   build: props.build,
   dials: { stiffness: stiffness.value, balance: balance.value, surface: surface.value }
@@ -121,53 +125,29 @@ async function generate() {
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <label class="flex flex-col gap-1 text-sm">
         <span class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Stiffness</span>
-        <select
+        <USelect
           v-model="stiffness"
+          :items="stiffnessItems"
           :disabled="generating"
-          class="rounded-sm border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-zinc-100 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-        >
-          <option
-            v-for="o in STIFFNESS_OPTIONS"
-            :key="o"
-            :value="o"
-          >
-            {{ STIFFNESS_LABELS[o] }}
-          </option>
-        </select>
+        />
       </label>
 
       <label class="flex flex-col gap-1 text-sm">
         <span class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Balance</span>
-        <select
+        <USelect
           v-model="balance"
+          :items="balanceItems"
           :disabled="generating"
-          class="rounded-sm border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-zinc-100 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-        >
-          <option
-            v-for="o in BALANCE_OPTIONS"
-            :key="o"
-            :value="o"
-          >
-            {{ BALANCE_LABELS[o] }}
-          </option>
-        </select>
+        />
       </label>
 
       <label class="flex flex-col gap-1 text-sm">
         <span class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Surface</span>
-        <select
+        <USelect
           v-model="surface"
+          :items="surfaceItems"
           :disabled="generating"
-          class="rounded-sm border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-zinc-100 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-        >
-          <option
-            v-for="o in SURFACE_OPTIONS"
-            :key="o"
-            :value="o"
-          >
-            {{ SURFACE_LABELS[o] }}
-          </option>
-        </select>
+        />
       </label>
     </div>
 
@@ -209,19 +189,21 @@ async function generate() {
       class="mt-3 flex gap-2"
       @submit.prevent="generate"
     >
-      <input
+      <UInput
         v-model="name"
-        type="text"
         :disabled="generating || blocked"
-        class="flex-1 rounded-sm border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-      >
-      <button
+        class="flex-1"
+        :ui="{ base: 'text-sm' }"
+      />
+      <UButton
         type="submit"
+        label="Generate"
+        color="primary"
+        variant="subtle"
+        :loading="generating"
         :disabled="generating || blocked || !name.trim()"
-        class="rounded-sm border border-zinc-700 bg-zinc-900 px-4 py-2 text-[11px] uppercase tracking-[0.2em] text-zinc-200 transition-colors hover:border-green-500/60 hover:text-green-300 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {{ generating ? 'Generating…' : 'Generate' }}
-      </button>
+        class="font-mono text-[11px] uppercase tracking-[0.2em]"
+      />
     </form>
     <div
       v-if="error"

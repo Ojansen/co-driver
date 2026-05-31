@@ -151,6 +151,14 @@ const { data: previousTunes, refresh: refreshPrevious } = await useFetch<TuneLis
 
 const copyFromId = ref<number | null>(null)
 
+const copyFromItems = computed(() => (previousTunes.value ?? []).map(t => ({ label: t.name, value: t.id })))
+
+// USelect's model rejects null — bridge null <-> undefined.
+const copyFromModel = computed({
+  get: () => copyFromId.value ?? undefined,
+  set: (v: number | undefined) => { copyFromId.value = v ?? null }
+})
+
 async function copyFromPrevious() {
   if (!copyFromId.value) return
   try {
@@ -230,24 +238,23 @@ async function save() {
       <div class="text-[10px] uppercase tracking-[0.3em] text-zinc-500">
         {{ existingTuneId ? 'Edit tune' : 'Add tune' }}
       </div>
-      <button
-        type="button"
-        class="rounded-sm border border-transparent px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200"
+      <UButton
+        label="Cancel"
+        color="neutral"
+        variant="ghost"
+        size="xs"
+        class="font-mono text-[10px] uppercase tracking-[0.2em]"
         @click="emit('cancel')"
-      >
-        Cancel
-      </button>
+      />
     </header>
 
     <label class="mb-4 flex flex-col gap-1 text-sm">
       <span class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Tune name</span>
-      <input
+      <UInput
         v-model="name"
-        type="text"
         placeholder="e.g. v1, mellow, stiffer rears"
         :disabled="saving"
-        class="rounded-sm border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-zinc-100 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-      >
+      />
     </label>
 
     <div
@@ -255,30 +262,23 @@ async function save() {
       class="mb-4 flex items-center gap-2 text-sm"
     >
       <span class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Copy from</span>
-      <select
-        v-model="copyFromId"
+      <USelect
+        v-model="copyFromModel"
+        :items="copyFromItems"
+        placeholder="—"
         :disabled="saving"
-        class="rounded-sm border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-      >
-        <option :value="null">
-          —
-        </option>
-        <option
-          v-for="t in previousTunes"
-          :key="t.id"
-          :value="t.id"
-        >
-          {{ t.name }}
-        </option>
-      </select>
-      <button
-        type="button"
+        size="xs"
+        class="text-xs"
+      />
+      <UButton
+        label="Apply"
+        color="neutral"
+        variant="outline"
+        size="xs"
         :disabled="saving || !copyFromId"
-        class="rounded-sm border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-zinc-200 transition-colors hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
+        class="font-mono text-[10px] uppercase tracking-[0.2em]"
         @click="copyFromPrevious"
-      >
-        Apply
-      </button>
+      />
     </div>
 
     <div class="space-y-2">
@@ -312,20 +312,18 @@ async function save() {
                 ref →
               </NuxtLink>
             </span>
-            <input
-              :value="displayValueFor(field, values[field.id]) ?? ''"
+            <UInput
+              :model-value="String(displayValueFor(field, values[field.id]) ?? '')"
               :type="field.kind === 'number' ? 'number' : 'text'"
               :min="field.kind === 'number' ? inputBoundsFor(field).min : undefined"
               :max="field.kind === 'number' ? inputBoundsFor(field).max : undefined"
               :step="field.kind === 'number' ? inputBoundsFor(field).step : undefined"
               :placeholder="placeholderFor(field)"
               :disabled="saving"
-              class="rounded-sm border bg-zinc-950 px-2 py-1.5 text-zinc-100 placeholder-zinc-600 focus:outline-none disabled:opacity-50"
-              :class="isOutOfRange(field, values[field.id])
-                ? 'border-amber-500/60 focus:border-amber-400'
-                : 'border-zinc-700 focus:border-zinc-500'"
-              @input="(e) => values[field.id] = canonicalFromInput(field, (e.target as HTMLInputElement).value)"
-            >
+              :color="isOutOfRange(field, values[field.id]) ? 'warning' : 'neutral'"
+              :highlight="isOutOfRange(field, values[field.id])"
+              @update:model-value="(v) => values[field.id] = canonicalFromInput(field, String(v))"
+            />
             <span
               v-if="isOutOfRange(field, values[field.id])"
               class="text-[10px] normal-case tracking-normal text-amber-400/80"
@@ -345,22 +343,23 @@ async function save() {
     </div>
 
     <div class="mt-5 flex justify-end gap-2">
-      <button
-        type="button"
+      <UButton
+        label="Cancel"
+        color="neutral"
+        variant="outline"
         :disabled="saving"
-        class="rounded-sm border border-zinc-700 bg-zinc-900 px-4 py-1.5 text-[11px] uppercase tracking-[0.2em] text-zinc-200 transition-colors hover:border-zinc-500 disabled:opacity-50"
+        class="font-mono text-[11px] uppercase tracking-[0.2em]"
         @click="emit('cancel')"
-      >
-        Cancel
-      </button>
-      <button
-        type="button"
+      />
+      <UButton
+        label="Save changes"
+        color="primary"
+        variant="subtle"
+        :loading="saving"
         :disabled="saving || !name.trim()"
-        class="rounded-sm border border-green-500/60 bg-green-500/10 px-4 py-1.5 text-[11px] uppercase tracking-[0.2em] text-green-300 transition-colors hover:bg-green-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+        class="font-mono text-[11px] uppercase tracking-[0.2em]"
         @click="save"
-      >
-        {{ saving ? 'Saving…' : 'Save changes' }}
-      </button>
+      />
     </div>
   </section>
 </template>

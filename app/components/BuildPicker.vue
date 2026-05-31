@@ -31,6 +31,17 @@ watch(() => props.currentBuildId, (v) => {
   selected.value = v ?? null
 })
 
+const buildItems = computed(() => (builds.value ?? []).map(b => ({
+  label: `${b.name} (${b.sessionCount} session${b.sessionCount === 1 ? '' : 's'})`,
+  value: b.id
+})))
+
+// USelect's model rejects null — bridge null <-> undefined.
+const selectedModel = computed({
+  get: () => selected.value ?? undefined,
+  set: (v: number | undefined) => { selected.value = v ?? null }
+})
+
 async function attachSelected() {
   if (!selected.value || props.disabled) return
   error.value = null
@@ -60,30 +71,21 @@ async function attachSelected() {
       v-else-if="builds && builds.length"
       class="flex items-center gap-2"
     >
-      <select
-        v-model="selected"
+      <USelect
+        v-model="selectedModel"
+        :items="buildItems"
+        placeholder="— select a build —"
         :disabled="disabled"
-        class="flex-1 rounded-sm border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-      >
-        <option :value="null">
-          — select a build —
-        </option>
-        <option
-          v-for="b in builds"
-          :key="b.id"
-          :value="b.id"
-        >
-          {{ b.name }} ({{ b.sessionCount }} session{{ b.sessionCount === 1 ? '' : 's' }})
-        </option>
-      </select>
-      <button
-        type="button"
+        class="flex-1 text-sm"
+      />
+      <UButton
+        label="Attach"
+        color="primary"
+        variant="subtle"
         :disabled="disabled || !selected || selected === currentBuildId"
-        class="rounded-sm border border-green-500/60 bg-green-500/10 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.2em] text-green-300 transition-colors hover:bg-green-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+        class="font-mono text-[11px] uppercase tracking-[0.2em]"
         @click="attachSelected"
-      >
-        Attach
-      </button>
+      />
     </div>
     <div
       v-else

@@ -125,6 +125,19 @@ const { data: previousBuilds, refresh: refreshPrevious } = await useFetch<BuildL
 
 const copyFromId = ref<number | null>(null)
 
+const copyFromItems = computed(() => (previousBuilds.value ?? []).map(b => ({ label: b.name, value: b.id })))
+
+// USelect's model rejects null — bridge null <-> undefined.
+const copyFromModel = computed({
+  get: () => copyFromId.value ?? undefined,
+  set: (v: number | undefined) => { copyFromId.value = v ?? null }
+})
+
+/** Options for an enum field, with a leading "—" entry to clear the value. */
+function enumItems(field: SetupField) {
+  return [{ label: '—', value: '' }, ...(field.options ?? []).map(o => ({ label: o, value: o }))]
+}
+
 async function copyFromPrevious() {
   if (!copyFromId.value) return
   try {
@@ -205,24 +218,23 @@ function autoHintFor(field: SetupField): string | null {
       <div class="text-[10px] uppercase tracking-[0.3em] text-zinc-500">
         {{ existingBuildId ? 'Edit build' : 'Add build' }}
       </div>
-      <button
-        type="button"
-        class="rounded-sm border border-transparent px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200"
+      <UButton
+        label="Cancel"
+        color="neutral"
+        variant="ghost"
+        size="xs"
+        class="font-mono text-[10px] uppercase tracking-[0.2em]"
         @click="emit('cancel')"
-      >
-        Cancel
-      </button>
+      />
     </header>
 
     <label class="mb-4 flex flex-col gap-1 text-sm">
       <span class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Build name</span>
-      <input
+      <UInput
         v-model="name"
-        type="text"
         placeholder="e.g. S2 race trim"
         :disabled="saving"
-        class="rounded-sm border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-zinc-100 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-      >
+      />
     </label>
 
     <div
@@ -230,30 +242,23 @@ function autoHintFor(field: SetupField): string | null {
       class="mb-4 flex items-center gap-2 text-sm"
     >
       <span class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Copy from</span>
-      <select
-        v-model="copyFromId"
+      <USelect
+        v-model="copyFromModel"
+        :items="copyFromItems"
+        placeholder="—"
         :disabled="saving"
-        class="rounded-sm border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-      >
-        <option :value="null">
-          —
-        </option>
-        <option
-          v-for="b in previousBuilds"
-          :key="b.id"
-          :value="b.id"
-        >
-          {{ b.name }}
-        </option>
-      </select>
-      <button
-        type="button"
+        size="xs"
+        class="text-xs"
+      />
+      <UButton
+        label="Apply"
+        color="neutral"
+        variant="outline"
+        size="xs"
         :disabled="saving || !copyFromId"
-        class="rounded-sm border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-zinc-200 transition-colors hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
+        class="font-mono text-[10px] uppercase tracking-[0.2em]"
         @click="copyFromPrevious"
-      >
-        Apply
-      </button>
+      />
     </div>
 
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -270,34 +275,23 @@ function autoHintFor(field: SetupField): string | null {
           >{{ autoHintFor(field) }}</span>
         </span>
 
-        <select
+        <USelect
           v-if="field.kind === 'enum'"
-          v-model="values[field.id]"
+          :model-value="(values[field.id] ?? '') as string"
+          :items="enumItems(field)"
           :disabled="saving"
-          class="rounded-sm border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-zinc-100 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-        >
-          <option :value="null">
-            —
-          </option>
-          <option
-            v-for="opt in field.options"
-            :key="opt"
-            :value="opt"
-          >
-            {{ opt }}
-          </option>
-        </select>
+          @update:model-value="(v) => values[field.id] = v === '' ? null : v"
+        />
 
-        <input
+        <UInput
           v-else
-          :value="displayValueFor(field, values[field.id]) ?? ''"
+          :model-value="String(displayValueFor(field, values[field.id]) ?? '')"
           :type="field.kind === 'number' ? 'number' : 'text'"
           :step="field.kind === 'number' ? 'any' : undefined"
           :placeholder="placeholderFor(field)"
           :disabled="saving"
-          class="rounded-sm border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-zinc-100 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-          @input="(e) => values[field.id] = canonicalFromInput(field, (e.target as HTMLInputElement).value)"
-        >
+          @update:model-value="(v) => values[field.id] = canonicalFromInput(field, String(v))"
+        />
       </label>
     </div>
 
@@ -309,22 +303,23 @@ function autoHintFor(field: SetupField): string | null {
     </div>
 
     <div class="mt-5 flex justify-end gap-2">
-      <button
-        type="button"
+      <UButton
+        label="Cancel"
+        color="neutral"
+        variant="outline"
         :disabled="saving"
-        class="rounded-sm border border-zinc-700 bg-zinc-900 px-4 py-1.5 text-[11px] uppercase tracking-[0.2em] text-zinc-200 transition-colors hover:border-zinc-500 disabled:opacity-50"
+        class="font-mono text-[11px] uppercase tracking-[0.2em]"
         @click="emit('cancel')"
-      >
-        Cancel
-      </button>
-      <button
-        type="button"
+      />
+      <UButton
+        label="Save changes"
+        color="primary"
+        variant="subtle"
+        :loading="saving"
         :disabled="saving || !name.trim()"
-        class="rounded-sm border border-green-500/60 bg-green-500/10 px-4 py-1.5 text-[11px] uppercase tracking-[0.2em] text-green-300 transition-colors hover:bg-green-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+        class="font-mono text-[11px] uppercase tracking-[0.2em]"
         @click="save"
-      >
-        {{ saving ? 'Saving…' : 'Save changes' }}
-      </button>
+      />
     </div>
   </section>
 </template>
