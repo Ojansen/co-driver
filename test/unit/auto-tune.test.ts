@@ -588,6 +588,38 @@ describe('computeAutoTune — rally surfaces stay inside in-game sliders', () =>
     expect(bal(dirt)).toBeCloseTo(bal(road), 1)
   })
 
+  it('cross-country camber is flat front AND rear (~−0.5), not 0.0', () => {
+    const cc = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'cross-country' } }).tune
+    expect(cc.camberFront).toBeCloseTo(-0.5, 5)
+    expect(cc.camberRear).toBeCloseTo(-0.5, 5)
+  })
+
+  it('cross-country pins ride height to the 8.0" max, higher than dirt', () => {
+    const dirt = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'dirt' } }).tune
+    const cc = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'cross-country' } }).tune
+    expect(cc.rideHeightFront).toBe(8.0)
+    expect(cc.rideHeightFront).toBeGreaterThan(dirt.rideHeightFront as number)
+  })
+
+  it('cross-country runs rear springs SOFTER than front (rotation)', () => {
+    const cc = computeAutoTune({ build: RWD_S2_BUILD, dials: { ...dials, surface: 'cross-country' } }).tune
+    expect(cc.springsRear).toBeLessThan(cc.springsFront as number)
+  })
+
+  it('cross-country diff is more even than dirt (lower rear-center bias)', () => {
+    const dirt = computeAutoTune({ build: AWD_BUILD, dials: { ...dials, surface: 'dirt' } }).tune
+    const cc = computeAutoTune({ build: AWD_BUILD, dials: { ...dials, surface: 'cross-country' } }).tune
+    expect(cc.centerBalance).toBeLessThan(dirt.centerBalance as number)
+    expect(cc.rearAccel).toBeGreaterThan(dirt.rearAccel as number)
+  })
+
+  it('cross-country cuts downforce below dirt and trims caster', () => {
+    const dirt = computeAutoTune({ build: { ...AWD_BUILD, aero: 'both' }, dials: { ...dials, surface: 'dirt' } }).tune
+    const cc = computeAutoTune({ build: { ...AWD_BUILD, aero: 'both' }, dials: { ...dials, surface: 'cross-country' } }).tune
+    expect(cc.aeroFront).toBeLessThan(dirt.aeroFront as number)
+    expect(cc.casterFront).toBeLessThan(dirt.casterFront as number)
+  })
+
   it('springs stay inside the global 50–1500 lb/in guard across all dials', () => {
     const heavy: BuildSettings = { weight: 1900, weightFrontPct: 55, drivetrain: 'awd', aero: 'both' }
     for (const stiffness of STIFFNESS_OPTIONS) {

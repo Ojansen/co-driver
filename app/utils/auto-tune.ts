@@ -82,6 +82,12 @@ const FREQ_FRONT_BASE: Record<Surface, number> = {
   'cross-country': 1.53
 }
 const FREQ_REAR_OFFSET = 0.2
+/** Cross-country flips the flat-ride offset: off-road AWD wants the rear
+ *  SOFTER than the front for rotation (engine.js's offroad kit puts the rear
+ *  far down the slider — pctRear 0.065 vs pctFront 0.395). A negative rear
+ *  offset drops rear frequency below front so the rear spring rate lands
+ *  under the front instead of above it. */
+const FREQ_REAR_OFFSET_CROSS = -0.15
 
 /** Spring-frequency multiplier by aero package. NumberlessMath separates a
  *  "heavy aero / limited travel" band at 3.43 Hz and "heavy aero + limited
@@ -173,7 +179,7 @@ const TIRE_PRESSURE_LOAD_EXP = 0.4
 const RIDE_HEIGHT_IN: Record<Surface, number> = {
   'road': 4.0,
   'dirt': 7.0,
-  'cross-country': 7.8
+  'cross-country': 8.0
 }
 
 /** Global ride-height guard (inches), from forza.tools' engine.js
@@ -197,7 +203,7 @@ const RALLY_SURFACES: readonly Surface[] = ['dirt', 'cross-country']
 const CAMBER_FRONT_BASE: Record<Surface, number> = {
   'road': -1.8,
   'dirt': -0.8,
-  'cross-country': -0.3
+  'cross-country': -0.5
 }
 const CAMBER_REAR_OFFSET = 0.6 // rear less negative than front
 /** Rear camber sits closer to the front on rally — dirt rewards a flatter
@@ -205,16 +211,23 @@ const CAMBER_REAR_OFFSET = 0.6 // rear less negative than front
  *  the front than the road offset would give (the old 0.6 left the rear at
  *  only −0.2 on dirt, below every source's rally rear-camber band). */
 const CAMBER_REAR_OFFSET_RALLY = 0.3
+/** Cross-country runs flat front AND rear at −0.5 (forzafire + engine.js
+ *  offroad both land there), so the rear gets zero offset from the −0.5 front
+ *  base. Using the rally 0.3 offset here was the bug that left CC rear at 0.0. */
+const CAMBER_REAR_OFFSET_CROSS = 0.0
 
 // Tire pressures anchored to FH6's 0.1-bar step so the value lands exactly on
 // a slider notch in metric. Stored as canonical psi via BAR_TO_PSI.
 // Rally pressures sit in the QuickTune / forzafire mainstream band (~25 psi,
 // modestly below road) rather than the DiamondLobby grip-extreme (10–15 psi).
 const BAR_TO_PSI = 14.5038
+// Cross-country sits at the forzafire FH6 ~1.9 bar (~27.5 psi) symmetric
+// target — deliberately above dirt here (user's call), still nowhere near the
+// DiamondLobby 10–15 psi extreme.
 const TIRE_PRESSURE_BAR: Record<Surface, number> = {
   'road': 2.0,
   'dirt': 1.8,
-  'cross-country': 1.7
+  'cross-country': 1.9
 }
 
 /** Caster (°) lerped on total weight in lb. From forza.tools' engine.js —
@@ -226,6 +239,10 @@ const CASTER_BY_WEIGHT_LB: [number, number][] = [
   [3500, 6.5],
   [4500, 7.0]
 ]
+/** Cross-country trims a touch of caster off the weight-lerped value —
+ *  forzafire / QuickTune put CC at ~5.0–5.5° (lower steering load on loose
+ *  surfaces) vs dirt's higher band. (engine.js's fixed 2.0 is rejected.) */
+const CASTER_CROSS_OFFSET = 0.3
 const KG_TO_LB = 2.20462
 
 const TOE_REAR_BASE = 0.15 // slight rear toe-in for stability
@@ -257,6 +274,9 @@ const AERO_BALANCE_DIAL_SHIFT = 0.03 // per balance click; tight ⇒ more rear-b
  *  rally at ~30% of range). We halve the magnitude but keep the same F/R
  *  balance target so the seed stays drivetrain-correct, just lighter. */
 const RALLY_AERO_MUL = 0.5
+/** Cross-country runs even less downforce than dirt — drag hurts entry speed
+ *  and angle recovery on rough terrain (engine.js offroad levelPct 0.3). */
+const RALLY_AERO_MUL_CROSS = 0.3
 
 // --- HELPERS --------------------------------------------------------------
 
@@ -385,6 +405,10 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   // diff, and minimal aero. Springs / ride-height softening is handled in
   // their own surface-keyed tables.
   const isRally = RALLY_SURFACES.includes(dials.surface)
+  // Cross-country is the roughest off-road category — softer still than dirt,
+  // ride height at max, flatter camber, rear-soft springs, a more-even diff,
+  // and even less aero. These deltas layer on top of the shared rally branch.
+  const isCrossCountry = dials.surface === 'cross-country'
 
   // Springs — frequency method. Aero package scales the target frequency:
   // a car with downforce wants to keep ride height stable under high-speed
@@ -392,7 +416,9 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   const aeroMul = AERO_FREQ_MUL[aero] ?? 1.00
   if (buildComplete) {
     const freqFBase = FREQ_FRONT_BASE[dials.surface]
-    const freqRBase = freqFBase + FREQ_REAR_OFFSET
+    // Cross-country drops the rear below the front (rotation); every other
+    // surface keeps the flat-ride rear-stiffer offset.
+    const freqRBase = freqFBase + (isCrossCountry ? FREQ_REAR_OFFSET_CROSS : FREQ_REAR_OFFSET)
     // Tight ⇒ stiffer front, softer rear (load to front to reduce rotation).
     const freqF = freqFBase * stiff * aeroMul * (1 + 0.05 * bal)
     const freqR = freqRBase * stiff * aeroMul * (1 - 0.05 * bal)
@@ -453,14 +479,17 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   // Alignment — FH6 step is 0.1° everywhere. Display pads to 2 decimals.
   // Rally keeps the rear nearer the front (flatter contact patch on loose).
   const camberF = CAMBER_FRONT_BASE[dials.surface]
-  const rearCamberOffset = isRally ? CAMBER_REAR_OFFSET_RALLY : CAMBER_REAR_OFFSET
+  const rearCamberOffset = isCrossCountry
+    ? CAMBER_REAR_OFFSET_CROSS
+    : isRally ? CAMBER_REAR_OFFSET_RALLY : CAMBER_REAR_OFFSET
   tune.camberFront = step1(clamp(camberF, -5, 5))
   tune.camberRear = step1(clamp(camberF + rearCamberOffset, -5, 5))
   // Caster — lerped on total weight (lb). Heavier cars want more caster
   // for stability and steering load; lighter cars stay lower for nimbler
   // turn-in. When weight is missing, fall back to the reference build.
   const weightLb = (weight ?? REFERENCE_TOTAL_KG) * KG_TO_LB
-  tune.casterFront = step1(clamp(lerpTable(CASTER_BY_WEIGHT_LB, weightLb), 1, 7))
+  const casterRaw = lerpTable(CASTER_BY_WEIGHT_LB, weightLb) - (isCrossCountry ? CASTER_CROSS_OFFSET : 0)
+  tune.casterFront = step1(clamp(casterRaw, 1, 7))
   tune.toeFront = 0.0
   // Tight ⇒ more rear toe-in for stability; loose ⇒ less.
   tune.toeRear = step1(clamp(TOE_REAR_BASE * (1 + 0.5 * bal), -5, 5))
@@ -499,10 +528,13 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   } else if (drivetrain === 'awd') {
     tune.frontAccel = isRally ? 35 : 30
     tune.frontDecel = 10
-    tune.rearAccel = isRally ? 60 : 50
+    // Cross-country puts a bit more rear accel lock down than dirt for traction.
+    tune.rearAccel = isCrossCountry ? 65 : isRally ? 60 : 50
     tune.rearDecel = isRally ? 22 : 15
-    // % rear (more rear ⇒ more RWD-like behavior).
-    tune.centerBalance = clamp(Math.round(65 - 5 * bal), 30, 90)
+    // % rear (more rear ⇒ more RWD-like behavior). Cross-country pulls the
+    // center back toward neutral vs dirt — trade rotation for landing stability.
+    const centerBase = isCrossCountry ? 60 : 65
+    tune.centerBalance = clamp(Math.round(centerBase - 5 * bal), 30, 90)
   }
   // (Missing drivetrain is a blocker — diff fields stay undefined in preview.)
 
@@ -526,7 +558,7 @@ export function computeAutoTune(opts: AutoTuneOptions): AutoTuneResult {
   //                  tight dial shifts target toward more-rear-biased
   // Rally surfaces halve the magnitude (downforce barely helps off-road) but
   // keep the same F/R balance target, so the seed stays drivetrain-correct.
-  const aeroMag = isRally ? RALLY_AERO_MUL : 1
+  const aeroMag = isCrossCountry ? RALLY_AERO_MUL_CROSS : isRally ? RALLY_AERO_MUL : 1
   if (aero === 'splitter') {
     tune.aeroFront = Math.max(0, Math.round((AERO_FRONT_BASE_LB - 10 * bal) * aeroMag))
   } else if (aero === 'wing') {
