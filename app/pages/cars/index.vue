@@ -52,40 +52,9 @@ async function addCurrentCar() {
     await $fetch('/api/cars', { method: 'POST', body: cur })
     await refreshCars()
   } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    addError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'add failed'
+    addError.value = apiErrorMessage(err, 'add failed')
   } finally {
     adding.value = false
-  }
-}
-
-// Delete car (cascades builds → tunes and sessions → laps)
-const deleteOpen = ref(false)
-const deleting = ref(false)
-const deleteError = ref<string | null>(null)
-const deleteTarget = ref<CarRow | null>(null)
-
-function openDelete(car: CarRow) {
-  deleteTarget.value = car
-  deleteError.value = null
-  deleteOpen.value = true
-}
-
-async function confirmDelete() {
-  const target = deleteTarget.value
-  if (!target || deleting.value) return
-  deleting.value = true
-  deleteError.value = null
-  try {
-    await $fetch(`/api/cars/${target.ordinal}`, { method: 'DELETE' })
-    deleteOpen.value = false
-    deleteTarget.value = null
-    await refreshCars()
-  } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    deleteError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'delete failed'
-  } finally {
-    deleting.value = false
   }
 }
 </script>
@@ -118,15 +87,6 @@ async function confirmDelete() {
       variant="subtle"
       icon="i-lucide-triangle-alert"
       :description="addError"
-      class="mb-6"
-      :ui="{ description: 'font-mono text-xs' }"
-    />
-    <UAlert
-      v-if="deleteError"
-      color="error"
-      variant="subtle"
-      icon="i-lucide-triangle-alert"
-      :description="deleteError"
       class="mb-6"
       :ui="{ description: 'font-mono text-xs' }"
     />
@@ -177,16 +137,27 @@ async function confirmDelete() {
             </div>
           </div>
         </NuxtLink>
-        <UButton
+        <DeleteAction
+          :url="`/api/cars/${car.ordinal}`"
+          :title="`Delete car “${car.displayName ?? `#${car.ordinal}`}”?`"
+          confirm-label="Delete car"
           icon="i-lucide-trash-2"
           color="neutral"
-          variant="ghost"
           size="xs"
-          title="Delete car"
-          aria-label="Delete car"
-          class="absolute top-3 right-3 text-zinc-600 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-300 focus:opacity-100 group-hover:opacity-100"
-          @click.stop.prevent="openDelete(car)"
-        />
+          trigger-title="Delete car"
+          trigger-aria-label="Delete car"
+          trigger-class="absolute top-3 right-3 text-zinc-600 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-300 focus:opacity-100 group-hover:opacity-100"
+          @deleted="refreshCars()"
+        >
+          <p>
+            Permanently remove this car and everything attached to it.
+            <span class="text-zinc-300">Cannot be undone.</span>
+          </p>
+          <ul class="mt-3 space-y-1 text-xs text-zinc-300">
+            <li>· {{ car.buildCount }} build{{ car.buildCount === 1 ? '' : 's' }} (with their tunes)</li>
+            <li>· {{ car.sessionCount }} session{{ car.sessionCount === 1 ? '' : 's' }} (with their laps)</li>
+          </ul>
+        </DeleteAction>
       </div>
     </div>
     <TelemetryWaiting
@@ -205,25 +176,5 @@ async function confirmDelete() {
       <span class="text-zinc-200">Add current car</span> above to start
       tracking it, or record a session and it'll land here automatically.
     </TelemetryWaiting>
-
-    <ConfirmModal
-      v-model:open="deleteOpen"
-      :title="deleteTarget ? `Delete car “${deleteTarget.displayName ?? `#${deleteTarget.ordinal}`}”?` : 'Delete car?'"
-      confirm-label="Delete car"
-      :busy="deleting"
-      @confirm="confirmDelete"
-    >
-      <p>
-        Permanently remove this car and everything attached to it.
-        <span class="text-zinc-300">Cannot be undone.</span>
-      </p>
-      <ul
-        v-if="deleteTarget"
-        class="mt-3 space-y-1 text-xs text-zinc-300"
-      >
-        <li>· {{ deleteTarget.buildCount }} build{{ deleteTarget.buildCount === 1 ? '' : 's' }} (with their tunes)</li>
-        <li>· {{ deleteTarget.sessionCount }} session{{ deleteTarget.sessionCount === 1 ? '' : 's' }} (with their laps)</li>
-      </ul>
-    </ConfirmModal>
   </main>
 </template>

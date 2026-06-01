@@ -25,42 +25,6 @@ interface BuildRow {
 const { data: cars, refresh: refreshCars } = await useFetch<CarRow[]>('/api/cars', { default: () => [] })
 const car = computed(() => cars.value?.find(c => c.ordinal === ordinal) ?? null)
 
-const editingName = ref(false)
-const nameDraft = ref('')
-const savingName = ref(false)
-const nameError = ref<string | null>(null)
-
-function startEditName() {
-  nameDraft.value = car.value?.displayName ?? ''
-  nameError.value = null
-  editingName.value = true
-}
-
-function cancelEditName() {
-  editingName.value = false
-  nameError.value = null
-}
-
-async function saveName() {
-  if (savingName.value) return
-  const trimmed = nameDraft.value.trim()
-  savingName.value = true
-  nameError.value = null
-  try {
-    await $fetch(`/api/cars/${ordinal}`, {
-      method: 'PATCH',
-      body: { displayName: trimmed.length ? trimmed : null }
-    })
-    await refreshCars()
-    editingName.value = false
-  } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    nameError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'rename failed'
-  } finally {
-    savingName.value = false
-  }
-}
-
 const { data: builds, refresh: refreshBuilds } = await useFetch<BuildRow[]>(
   `/api/cars/${ordinal}/builds`,
   { default: () => [] }
@@ -68,30 +32,18 @@ const { data: builds, refresh: refreshBuilds } = await useFetch<BuildRow[]>(
 
 useHead({ title: () => `${car.value?.displayName ?? `#${ordinal}`} · garage` })
 
-// "New build" inline entry
-const newName = ref('')
-const creating = ref(false)
-const errorMessage = ref<string | null>(null)
+async function saveName(next: string | null) {
+  await $fetch(`/api/cars/${ordinal}`, { method: 'PATCH', body: { displayName: next } })
+  await refreshCars()
+}
 
-async function createBuild() {
-  const trimmed = newName.value.trim()
-  if (!trimmed || creating.value) return
-  creating.value = true
-  errorMessage.value = null
-  try {
-    const created = await $fetch<{ id: number }>(`/api/cars/${ordinal}/builds`, {
-      method: 'POST',
-      body: { name: trimmed, settings: {} }
-    })
-    newName.value = ''
-    await refreshBuilds()
-    await router.push(`/cars/${ordinal}/builds/${created.id}`)
-  } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    errorMessage.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'create failed'
-  } finally {
-    creating.value = false
-  }
+async function createBuild(name: string) {
+  const created = await $fetch<{ id: number }>(`/api/cars/${ordinal}/builds`, {
+    method: 'POST',
+    body: { name, settings: {} }
+  })
+  await refreshBuilds()
+  await router.push(`/cars/${ordinal}/builds/${created.id}`)
 }
 
 const CLASS_LETTERS = ['D', 'C', 'B', 'A', 'S1', 'S2', 'X', 'R']
@@ -113,93 +65,40 @@ function carClassLetter(c: number): string {
       <span class="text-zinc-300">{{ car?.displayName ?? `#${ordinal}` }}</span>
     </div>
 
-    <div class="mb-8 flex items-baseline gap-3">
-      <template v-if="editingName">
-        <UInput
-          v-model="nameDraft"
-          :placeholder="`#${ordinal}`"
-          :disabled="savingName"
-          autofocus
-          class="min-w-0 flex-1"
-          :ui="{ base: 'text-2xl' }"
-          @keydown.enter.prevent="saveName"
-          @keydown.escape.prevent="cancelEditName"
-        />
-        <UButton
-          :label="savingName ? 'Saving…' : 'Save'"
-          color="primary"
-          variant="outline"
-          :loading="savingName"
-          :disabled="savingName"
-          class="font-mono text-[11px] uppercase tracking-[0.2em]"
-          @click="saveName"
-        />
-        <UButton
-          label="Cancel"
-          color="neutral"
-          variant="ghost"
-          :disabled="savingName"
-          class="font-mono text-[11px] uppercase tracking-[0.2em]"
-          @click="cancelEditName"
-        />
-      </template>
-      <template v-else>
-        <h1 class="font-mono text-3xl text-zinc-100">
-          {{ car?.displayName ?? `#${ordinal}` }}
-        </h1>
-        <span
-          v-if="car"
-          class="font-mono text-sm text-zinc-500"
-        >[{{ carClassLetter(car.class) }}]</span>
-        <UButton
-          label="rename"
-          color="neutral"
-          variant="link"
-          size="xs"
-          class="ml-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600 hover:text-zinc-300"
-          @click="startEditName"
-        />
-      </template>
-    </div>
-    <div
-      v-if="nameError"
-      class="mb-4 font-mono text-xs text-red-400"
+    <InlineEdit
+      class="mb-8"
+      :value="car?.displayName ?? null"
+      :placeholder="`#${ordinal}`"
+      :save="saveName"
+      :input-ui="{ base: 'text-2xl' }"
     >
-      {{ nameError }}
-    </div>
+      <template #display="{ edit }">
+        <div class="flex items-baseline gap-3">
+          <h1 class="font-mono text-3xl text-zinc-100">
+            {{ car?.displayName ?? `#${ordinal}` }}
+          </h1>
+          <span
+            v-if="car"
+            class="font-mono text-sm text-zinc-500"
+          >[{{ carClassLetter(car.class) }}]</span>
+          <UButton
+            label="rename"
+            color="neutral"
+            variant="link"
+            size="xs"
+            class="ml-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600 hover:text-zinc-300"
+            @click="edit"
+          />
+        </div>
+      </template>
+    </InlineEdit>
 
-    <section class="mb-8 card p-4">
-      <div class="mb-2 font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-500">
-        New build
-      </div>
-      <form
-        class="flex gap-2"
-        @submit.prevent="createBuild"
-      >
-        <UInput
-          v-model="newName"
-          placeholder="e.g. S2 race trim"
-          :disabled="creating"
-          class="flex-1"
-          :ui="{ base: 'text-sm' }"
-        />
-        <UButton
-          type="submit"
-          :label="creating ? 'Creating…' : 'Create'"
-          color="primary"
-          variant="outline"
-          :loading="creating"
-          :disabled="creating || !newName.trim()"
-          class="font-mono text-[11px] uppercase tracking-[0.2em]"
-        />
-      </form>
-      <div
-        v-if="errorMessage"
-        class="mt-2 font-mono text-xs text-red-400"
-      >
-        {{ errorMessage }}
-      </div>
-    </section>
+    <CreateForm
+      class="mb-8"
+      title="New build"
+      placeholder="e.g. S2 race trim"
+      :submit="createBuild"
+    />
 
     <ul
       v-if="builds && builds.length"
@@ -208,10 +107,11 @@ function carClassLetter(c: number): string {
       <li
         v-for="build in builds"
         :key="build.id"
+        class="group flex items-stretch gap-2"
       >
         <NuxtLink
           :to="`/cars/${ordinal}/builds/${build.id}`"
-          class="group flex items-center justify-between card p-4 transition-colors hover:border-zinc-600 hover:bg-zinc-900/60"
+          class="flex flex-1 items-center justify-between card p-4 transition-colors hover:border-zinc-600 hover:bg-zinc-900/60"
         >
           <div class="font-mono">
             <div class="text-zinc-100">
@@ -225,6 +125,31 @@ function carClassLetter(c: number): string {
             →
           </span>
         </NuxtLink>
+        <DeleteAction
+          :url="`/api/builds/${build.id}`"
+          :title="`Delete build “${build.name}”?`"
+          confirm-label="Delete build"
+          label="Delete"
+          trigger-class="shrink-0"
+          @deleted="refreshBuilds()"
+        >
+          <p>
+            Permanently remove this build and its tunes.
+            <span class="text-zinc-300">Cannot be undone.</span>
+          </p>
+          <ul class="mt-3 space-y-1 text-xs text-zinc-300">
+            <li v-if="build.tuneCount > 0">
+              · {{ build.tuneCount }} tune{{ build.tuneCount === 1 ? '' : 's' }} will be deleted with it.
+            </li>
+            <li v-if="build.sessionCount > 0">
+              · {{ build.sessionCount }} session{{ build.sessionCount === 1 ? '' : 's' }} will be unlinked
+              <span class="text-zinc-500">(their build snapshot stays — laps + compare still work)</span>
+            </li>
+            <li v-if="build.tuneCount === 0 && build.sessionCount === 0">
+              · No tunes or sessions reference this build.
+            </li>
+          </ul>
+        </DeleteAction>
       </li>
     </ul>
     <UEmpty

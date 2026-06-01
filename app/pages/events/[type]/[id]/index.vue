@@ -93,35 +93,13 @@ async function goCompare() {
 }
 
 // Delete event
-const deleteOpen = ref(false)
-const deleting = ref(false)
-const deleteError = ref<string | null>(null)
-
 const cascadeSessions = computed(() => data.value?.sessions.length ?? 0)
 const cascadeLaps = computed(() =>
   (data.value?.sessions ?? []).reduce((sum, s) => sum + (s.lapCount ?? 0), 0)
 )
 
-function openDelete() {
-  deleteError.value = null
-  deleteOpen.value = true
-}
-
-async function confirmDelete() {
-  if (deleting.value) return
-  deleting.value = true
-  deleteError.value = null
-  try {
-    await $fetch(`/api/events/${eventId}`, { method: 'DELETE' })
-    deleteOpen.value = false
-    await navigateTo(`/events/${eventTypeKey}`)
-  } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    deleteError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'delete failed'
-    deleteOpen.value = false
-  } finally {
-    deleting.value = false
-  }
+function onDeleted() {
+  return navigateTo(`/events/${eventTypeKey}`)
 }
 </script>
 
@@ -146,13 +124,23 @@ async function confirmDelete() {
         <span class="text-zinc-300">{{ data?.event.name }}</span>
       </template>
       <template #actions>
-        <button
-          type="button"
-          class="rounded-sm border border-red-500/40 bg-red-500/10 px-4 py-3 font-mono text-xs uppercase tracking-[0.3em] text-red-300 transition-colors hover:border-red-400/60 hover:bg-red-500/20"
-          @click="openDelete"
+        <DeleteAction
+          :url="`/api/events/${eventId}`"
+          :title="`Delete event “${data?.event.name}”?`"
+          label="Delete event"
+          confirm-label="Delete event"
+          variant="subtle"
+          @deleted="onDeleted"
         >
-          Delete event
-        </button>
+          <p>
+            Permanently remove this event and everything captured under it.
+            <span class="text-zinc-300">Cannot be undone.</span>
+          </p>
+          <ul class="mt-3 space-y-1 text-xs text-zinc-300">
+            <li>· {{ cascadeSessions }} session{{ cascadeSessions === 1 ? '' : 's' }}</li>
+            <li>· {{ cascadeLaps }} lap{{ cascadeLaps === 1 ? '' : 's' }}</li>
+          </ul>
+        </DeleteAction>
         <button
           type="button"
           class="rounded-sm border border-green-500/40 bg-green-500/10 px-6 py-3 font-mono text-xs uppercase tracking-[0.3em] text-green-300 transition-colors hover:border-green-400/60 hover:bg-green-500/20"
@@ -169,13 +157,6 @@ async function confirmDelete() {
       class="mb-6 card-error p-3 font-mono text-xs text-red-300"
     >
       {{ lastError }}
-    </div>
-
-    <div
-      v-if="deleteError"
-      class="mb-6 card-error p-3 font-mono text-xs text-red-300"
-    >
-      {{ deleteError }}
     </div>
 
     <section v-if="data?.sessions?.length">
@@ -277,22 +258,5 @@ async function confirmDelete() {
     >
       No recordings yet for this event. Hit Start Recording to capture your first run.
     </div>
-
-    <ConfirmModal
-      v-model:open="deleteOpen"
-      :title="`Delete event “${data?.event.name}”?`"
-      confirm-label="Delete event"
-      :busy="deleting"
-      @confirm="confirmDelete"
-    >
-      <p>
-        Permanently remove this event and everything captured under it.
-        <span class="text-zinc-300">Cannot be undone.</span>
-      </p>
-      <ul class="mt-3 space-y-1 text-xs text-zinc-300">
-        <li>· {{ cascadeSessions }} session{{ cascadeSessions === 1 ? '' : 's' }}</li>
-        <li>· {{ cascadeLaps }} lap{{ cascadeLaps === 1 ? '' : 's' }}</li>
-      </ul>
-    </ConfirmModal>
   </main>
 </template>

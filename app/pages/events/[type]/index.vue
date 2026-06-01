@@ -24,10 +24,6 @@ const { data: events, refresh } = await useFetch<EventRow[]>('/api/events', {
   default: () => []
 })
 
-const newName = ref('')
-const creating = ref(false)
-const errorMessage = ref<string | null>(null)
-
 const PLACEHOLDERS: Record<EventType, string> = {
   race: 'e.g. Goliath',
   street_race: 'e.g. Cancun Street Circuit',
@@ -40,25 +36,13 @@ const PLACEHOLDERS: Record<EventType, string> = {
 }
 const placeholder = computed(() => PLACEHOLDERS[eventTypeKey])
 
-async function createEvent() {
-  const name = newName.value.trim()
-  if (!name || creating.value) return
-  creating.value = true
-  errorMessage.value = null
-  try {
-    const created = await $fetch<EventRow>('/api/events', {
-      method: 'POST',
-      body: { name, type: eventTypeKey }
-    })
-    newName.value = ''
-    await refresh()
-    await router.push(`/events/${eventTypeKey}/${created.id}`)
-  } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    errorMessage.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'create failed'
-  } finally {
-    creating.value = false
-  }
+async function createEvent(name: string) {
+  const created = await $fetch<EventRow>('/api/events', {
+    method: 'POST',
+    body: { name, type: eventTypeKey }
+  })
+  await refresh()
+  await router.push(`/events/${eventTypeKey}/${created.id}`)
 }
 </script>
 
@@ -77,38 +61,12 @@ async function createEvent() {
       </template>
     </PageHeader>
 
-    <section class="mb-8 card p-4">
-      <div class="mb-2 font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-500">
-        New event
-      </div>
-      <form
-        class="flex gap-2"
-        @submit.prevent="createEvent"
-      >
-        <UInput
-          v-model="newName"
-          :placeholder="placeholder"
-          :disabled="creating"
-          class="flex-1"
-          :ui="{ base: 'text-sm' }"
-        />
-        <UButton
-          type="submit"
-          :label="creating ? 'Creating…' : 'Create'"
-          color="primary"
-          variant="outline"
-          :loading="creating"
-          :disabled="creating || !newName.trim()"
-          class="font-mono text-[11px] uppercase tracking-[0.2em]"
-        />
-      </form>
-      <div
-        v-if="errorMessage"
-        class="mt-2 font-mono text-xs text-red-400"
-      >
-        {{ errorMessage }}
-      </div>
-    </section>
+    <CreateForm
+      class="mb-8"
+      title="New event"
+      :placeholder="placeholder"
+      :submit="createEvent"
+    />
 
     <ul
       v-if="events && events.length"

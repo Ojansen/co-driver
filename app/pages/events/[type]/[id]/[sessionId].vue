@@ -178,8 +178,7 @@ async function attachBuild(buildId: number) {
     })
     await refreshNuxtData()
   } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    attachError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'attach failed'
+    attachError.value = apiErrorMessage(err, 'attach failed')
   } finally {
     attaching.value = false
   }
@@ -196,8 +195,7 @@ async function attachTune(tuneId: number) {
     })
     await refreshNuxtData()
   } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    attachError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'attach failed'
+    attachError.value = apiErrorMessage(err, 'attach failed')
   } finally {
     attaching.value = false
   }
@@ -222,43 +220,13 @@ const loadingFrames = ref(false)
 const framesError = ref<string | null>(null)
 
 // Inline tune-label editing
-const editingTune = ref(false)
-const tuneDraft = ref('')
-const savingTune = ref(false)
-const tuneError = ref<string | null>(null)
-
-function startEditTune() {
-  if (savingTune.value) return
-  tuneDraft.value = data.value?.session.tuneLabel ?? ''
-  tuneError.value = null
-  editingTune.value = true
-}
-
-function cancelEditTune() {
-  editingTune.value = false
-  tuneDraft.value = ''
-  tuneError.value = null
-}
-
-async function saveTune() {
-  if (savingTune.value || !data.value) return
-  savingTune.value = true
-  tuneError.value = null
-  const trimmed = tuneDraft.value.trim()
-  const next = trimmed.length > 0 ? trimmed : null
-  try {
-    const updated = await $fetch<{ tuneLabel: string | null }>(`/api/sessions/${sessionId}`, {
-      method: 'PATCH',
-      body: { tuneLabel: next }
-    })
-    data.value.session.tuneLabel = updated.tuneLabel
-    editingTune.value = false
-  } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, message?: string }
-    tuneError.value = e.data?.statusMessage ?? e.message ?? 'save failed'
-  } finally {
-    savingTune.value = false
-  }
+async function saveTuneLabel(next: string | null) {
+  if (!data.value) return
+  const updated = await $fetch<{ tuneLabel: string | null }>(`/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    body: { tuneLabel: next }
+  })
+  data.value.session.tuneLabel = updated.tuneLabel
 }
 
 async function selectLap(lapId: number) {
@@ -271,8 +239,7 @@ async function selectLap(lapId: number) {
     const res = await $fetch<{ lapId: number, lapNumber: number, timeMs: number, frames: Telemetry[] }>(`/api/laps/${lapId}/frames`)
     replayFrames.value = res.frames
   } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    framesError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'failed to load frames'
+    framesError.value = apiErrorMessage(err, 'failed to load frames')
     selectedLapId.value = null
   } finally {
     loadingFrames.value = false
@@ -300,32 +267,10 @@ const bestLapMs = computed(() => {
 })
 
 // Delete session
-const deleteOpen = ref(false)
-const deleting = ref(false)
-const deleteError = ref<string | null>(null)
-
 const cascadeLaps = computed(() => data.value?.laps.length ?? 0)
 
-function openDelete() {
-  deleteError.value = null
-  deleteOpen.value = true
-}
-
-async function confirmDelete() {
-  if (deleting.value) return
-  deleting.value = true
-  deleteError.value = null
-  try {
-    await $fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' })
-    deleteOpen.value = false
-    await navigateTo(`/events/${eventTypeKey}/${eventId}`)
-  } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    deleteError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'delete failed'
-    deleteOpen.value = false
-  } finally {
-    deleting.value = false
-  }
+function onDeleted() {
+  return navigateTo(`/events/${eventTypeKey}/${eventId}`)
 }
 </script>
 
@@ -357,22 +302,27 @@ async function confirmDelete() {
         <span class="text-zinc-300">Session #{{ sessionId }}</span>
       </template>
       <template #actions>
-        <button
-          type="button"
-          class="rounded-sm border border-red-500/40 bg-red-500/10 px-4 py-2.5 font-mono text-xs uppercase tracking-[0.3em] text-red-300 transition-colors hover:border-red-400/60 hover:bg-red-500/20"
-          @click="openDelete"
+        <DeleteAction
+          :url="`/api/sessions/${sessionId}`"
+          :title="`Delete session #${sessionId}?`"
+          label="Delete session"
+          confirm-label="Delete session"
+          variant="subtle"
+          @deleted="onDeleted"
         >
-          Delete session
-        </button>
+          <p>
+            Permanently remove this session.
+            <span class="text-zinc-300">Cannot be undone.</span>
+          </p>
+          <ul class="mt-3 space-y-1 text-xs text-zinc-300">
+            <li>· {{ cascadeLaps }} lap{{ cascadeLaps === 1 ? '' : 's' }} removed</li>
+            <li v-if="data?.session.tuneLabel">
+              · tune label: {{ data.session.tuneLabel }}
+            </li>
+          </ul>
+        </DeleteAction>
       </template>
     </PageHeader>
-
-    <div
-      v-if="deleteError"
-      class="mb-6 card-error p-3 font-mono text-xs text-red-300"
-    >
-      {{ deleteError }}
-    </div>
 
     <section class="mb-8 grid grid-cols-2 gap-3 font-mono text-sm sm:grid-cols-4">
       <div class="card p-3">
@@ -391,35 +341,25 @@ async function confirmDelete() {
         <div class="mt-1 flex flex-wrap items-center gap-x-2 text-zinc-100">
           <span>{{ data?.session.piAtStart }}</span>
           <span class="text-zinc-500">·</span>
-          <template v-if="!editingTune">
-            <button
-              type="button"
-              class="rounded-sm text-left transition-colors hover:bg-zinc-800/60 hover:text-zinc-50"
-              :title="data?.session.tuneLabel ? 'Click to edit tune label' : 'Click to set a tune label'"
-              @click="startEditTune"
-            >
-              {{ data?.session.tuneLabel ?? '—' }}
-            </button>
-          </template>
-          <template v-else>
-            <input
-              v-model="tuneDraft"
-              type="text"
-              autofocus
-              :disabled="savingTune"
-              placeholder="tune name"
-              class="min-w-0 flex-1 rounded-sm border border-zinc-700 bg-zinc-950 px-2 py-0.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-              @keydown.enter.prevent="saveTune"
-              @keydown.esc.prevent="cancelEditTune"
-              @blur="saveTune"
-            >
-          </template>
-        </div>
-        <div
-          v-if="tuneError"
-          class="mt-1 text-[10px] text-red-400"
-        >
-          {{ tuneError }}
+          <InlineEdit
+            class="min-w-0 flex-1"
+            :value="data?.session.tuneLabel ?? null"
+            placeholder="tune name"
+            :save="saveTuneLabel"
+            autosave-on-blur
+            :input-ui="{ base: 'text-sm' }"
+          >
+            <template #display="{ edit }">
+              <button
+                type="button"
+                class="rounded-sm text-left transition-colors hover:bg-zinc-800/60 hover:text-zinc-50"
+                :title="data?.session.tuneLabel ? 'Click to edit tune label' : 'Click to set a tune label'"
+                @click="edit"
+              >
+                {{ data?.session.tuneLabel ?? '—' }}
+              </button>
+            </template>
+          </InlineEdit>
         </div>
       </div>
       <div class="card p-3">
@@ -600,24 +540,5 @@ async function confirmDelete() {
         :frames="replayFrames"
       />
     </section>
-
-    <ConfirmModal
-      v-model:open="deleteOpen"
-      :title="`Delete session #${sessionId}?`"
-      confirm-label="Delete session"
-      :busy="deleting"
-      @confirm="confirmDelete"
-    >
-      <p>
-        Permanently remove this session.
-        <span class="text-zinc-300">Cannot be undone.</span>
-      </p>
-      <ul class="mt-3 space-y-1 text-xs text-zinc-300">
-        <li>· {{ cascadeLaps }} lap{{ cascadeLaps === 1 ? '' : 's' }} removed</li>
-        <li v-if="data?.session.tuneLabel">
-          · tune label: {{ data.session.tuneLabel }}
-        </li>
-      </ul>
-    </ConfirmModal>
   </main>
 </template>

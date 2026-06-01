@@ -84,9 +84,6 @@ const { data: sessions } = await useFetch<BuildSessionRow[]>(
   { default: () => [] }
 )
 
-const newTuneName = ref('')
-const creating = ref(false)
-const tuneCreateError = ref<string | null>(null)
 const editingTuneId = ref<number | null>(null)
 
 // Which tunes have their detail panel expanded (collapsed by default to keep
@@ -99,26 +96,14 @@ function toggleTuneDetails(id: number) {
   expandedTuneIds.value = next
 }
 
-async function createTune() {
-  const trimmed = newTuneName.value.trim()
-  if (!trimmed || creating.value) return
-  creating.value = true
-  tuneCreateError.value = null
-  try {
-    const created = await $fetch<TuneRow>(`/api/builds/${buildId}/tunes`, {
-      method: 'POST',
-      body: { name: trimmed, settings: {} }
-    })
-    newTuneName.value = ''
-    await refreshTunes()
-    // Open the new row immediately in edit mode for the user to fill in.
-    editingTuneId.value = created.id
-  } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    tuneCreateError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'create failed'
-  } finally {
-    creating.value = false
-  }
+async function createTune(name: string) {
+  const created = await $fetch<TuneRow>(`/api/builds/${buildId}/tunes`, {
+    method: 'POST',
+    body: { name, settings: {} }
+  })
+  await refreshTunes()
+  // Open the new row immediately in edit mode for the user to fill in.
+  editingTuneId.value = created.id
 }
 
 async function onTuneSaved() {
@@ -132,34 +117,9 @@ async function onBaselineCreated() {
 
 // --- Tune delete -----------------------------------------------------------
 
-const deleteOpen = ref(false)
-const deleting = ref(false)
-const deleteError = ref<string | null>(null)
-const deleteTarget = ref<TuneRow | null>(null)
-
-function askDelete(tune: TuneRow) {
-  deleteTarget.value = tune
-  deleteError.value = null
-  deleteOpen.value = true
-}
-
-async function confirmDeleteTune() {
-  const target = deleteTarget.value
-  if (!target || deleting.value) return
-  deleting.value = true
-  deleteError.value = null
-  try {
-    await $fetch(`/api/tunes/${target.id}`, { method: 'DELETE' })
-    deleteOpen.value = false
-    deleteTarget.value = null
-    if (editingTuneId.value === target.id) editingTuneId.value = null
-    await refreshTunes()
-  } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    deleteError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'delete failed'
-  } finally {
-    deleting.value = false
-  }
+function onTuneDeleted(tune: TuneRow) {
+  if (editingTuneId.value === tune.id) editingTuneId.value = null
+  return refreshTunes()
 }
 </script>
 
@@ -227,36 +187,12 @@ async function confirmDeleteTune() {
         />
       </div>
 
-      <div class="mb-3 card p-4">
-        <div class="mb-2 font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-500">
-          New tune
-        </div>
-        <form
-          class="flex gap-2"
-          @submit.prevent="createTune"
-        >
-          <input
-            v-model="newTuneName"
-            type="text"
-            placeholder="e.g. v1, mellow, stiffer rears"
-            :disabled="creating"
-            class="flex-1 rounded-sm border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-          >
-          <button
-            type="submit"
-            :disabled="creating || !newTuneName.trim()"
-            class="rounded-sm border border-zinc-700 bg-zinc-900 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-200 transition-colors hover:border-green-500/60 hover:text-green-300 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {{ creating ? 'Creating…' : 'Create' }}
-          </button>
-        </form>
-        <div
-          v-if="tuneCreateError"
-          class="mt-2 font-mono text-xs text-red-400"
-        >
-          {{ tuneCreateError }}
-        </div>
-      </div>
+      <CreateForm
+        class="mb-3"
+        title="New tune"
+        placeholder="e.g. v1, mellow, stiffer rears"
+        :submit="createTune"
+      />
 
       <ul
         v-if="tunes && tunes.length"
@@ -307,13 +243,28 @@ async function confirmDeleteTune() {
                 >
                   Edit
                 </button>
-                <button
-                  type="button"
-                  class="rounded-sm border border-zinc-800 bg-zinc-950 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 transition-colors hover:border-red-500/50 hover:text-red-300"
-                  @click="askDelete(tune)"
+                <DeleteAction
+                  :url="`/api/tunes/${tune.id}`"
+                  :title="`Delete tune “${tune.name}”?`"
+                  confirm-label="Delete tune"
+                  label="Delete"
+                  size="xs"
+                  @deleted="onTuneDeleted(tune)"
                 >
-                  Delete
-                </button>
+                  <p>
+                    Permanently remove this tune.
+                    <span class="text-zinc-300">Cannot be undone.</span>
+                  </p>
+                  <ul class="mt-3 space-y-1 text-xs text-zinc-300">
+                    <li v-if="tune.sessionCount > 0">
+                      · {{ tune.sessionCount }} session{{ tune.sessionCount === 1 ? '' : 's' }} will be unlinked
+                      <span class="text-zinc-500">(their tune snapshot stays — laps + compare still work)</span>
+                    </li>
+                    <li v-else>
+                      · No sessions reference this tune.
+                    </li>
+                  </ul>
+                </DeleteAction>
               </div>
             </div>
             <UCollapsible
@@ -397,36 +348,5 @@ async function confirmDeleteTune() {
         driving this build.
       </div>
     </section>
-
-    <ConfirmModal
-      v-model:open="deleteOpen"
-      :title="deleteTarget ? `Delete tune “${deleteTarget.name}”?` : 'Delete tune?'"
-      confirm-label="Delete tune"
-      :busy="deleting"
-      @confirm="confirmDeleteTune"
-    >
-      <p>
-        Permanently remove this tune.
-        <span class="text-zinc-300">Cannot be undone.</span>
-      </p>
-      <ul
-        v-if="deleteTarget"
-        class="mt-3 space-y-1 text-xs text-zinc-300"
-      >
-        <li v-if="deleteTarget.sessionCount > 0">
-          · {{ deleteTarget.sessionCount }} session{{ deleteTarget.sessionCount === 1 ? '' : 's' }} will be unlinked
-          <span class="text-zinc-500">(their tune snapshot stays — laps + compare still work)</span>
-        </li>
-        <li v-else>
-          · No sessions reference this tune.
-        </li>
-      </ul>
-      <p
-        v-if="deleteError"
-        class="mt-3 text-xs text-red-400"
-      >
-        {{ deleteError }}
-      </p>
-    </ConfirmModal>
   </main>
 </template>
