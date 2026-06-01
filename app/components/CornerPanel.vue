@@ -52,20 +52,28 @@ const TRAIL_SAMPLES = 30 // ~0.5 s at 60 Hz
 interface FrPoint { x: number, y: number }
 const trail = ref<FrPoint[]>([])
 
-function project(slipAngle: number, slipRatio: number): FrPoint {
-  // Convention matches the chassis G-G dot: forward drive force (positive
-  // slipRatio = wheelspin) plots DOWN, lockup (negative slipRatio) plots UP.
-  // slipAngle on X with positive to the right.
+// Place the dot so its DIRECTION comes from the raw (slipAngle, slipRatio) load
+// mix, but its RADIUS tracks `combinedSlip` — Forza's already-normalized
+// resultant where 1.0 = peak grip. That makes the rings honest: the dot touches
+// the dashed ring at 70% of grip, crosses the solid LIMIT_R ring exactly when
+// combinedSlip > 1.0 (i.e. when the "Past grip" chip fires).
+// Convention matches the chassis G-G dot: forward drive force (positive
+// slipRatio = wheelspin) plots DOWN, lockup (negative slipRatio) plots UP;
+// slipAngle on X with positive to the right.
+function project(slipAngle: number, slipRatio: number, combinedSlip: number): FrPoint {
+  const mag = Math.hypot(slipAngle, slipRatio)
+  if (mag < 1e-6) return { x: 50, y: 50 }
+  const r = combinedSlip * LIMIT_R
   return {
-    x: 50 + slipAngle * LIMIT_R,
-    y: 50 + slipRatio * LIMIT_R
+    x: 50 + (slipAngle / mag) * r,
+    y: 50 + (slipRatio / mag) * r
   }
 }
 
-const dotPos = computed<FrPoint>(() => project(props.slipAngle, props.slipRatio))
+const dotPos = computed<FrPoint>(() => project(props.slipAngle, props.slipRatio, props.combinedSlip))
 
-watch(() => [props.slipAngle, props.slipRatio] as const, ([sa, sr]) => {
-  trail.value.push(project(sa, sr))
+watch(() => [props.slipAngle, props.slipRatio, props.combinedSlip] as const, ([sa, sr, cs]) => {
+  trail.value.push(project(sa, sr, cs))
   if (trail.value.length > TRAIL_SAMPLES) trail.value.shift()
 }, { immediate: true })
 
@@ -161,13 +169,13 @@ const trailPath = computed(() => {
 
       <div class="flex min-w-0 flex-1 flex-col gap-3">
         <!-- Slip ratio + angle -->
-        <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="grid grid-cols-2 gap-3 text-xs">
           <div :class="align">
             <div class="text-zinc-400">
               SLIP R
             </div>
             <div
-              class="text-2xl leading-none tabular-nums"
+              class="text-lg leading-none tabular-nums"
               :style="{ color: ratioColor }"
             >
               {{ slipRatio >= 0 ? '+' : '' }}{{ slipRatio.toFixed(2) }}
@@ -178,7 +186,7 @@ const trailPath = computed(() => {
               SLIP A
             </div>
             <div
-              class="text-2xl leading-none tabular-nums"
+              class="text-lg leading-none tabular-nums"
               :style="{ color: angleColor }"
             >
               {{ slipAngle >= 0 ? '+' : '' }}{{ slipAngle.toFixed(2) }}
@@ -186,10 +194,11 @@ const trailPath = computed(() => {
           </div>
         </div>
 
-        <!-- Friction circle — dot positioned at (slipAngle, slipRatio) inside the
-         grip limit (outer ring = 1.0). Working-zone ring is dashed at 0.7. -->
+        <!-- Friction circle — dot direction from the (slipAngle, slipRatio) load
+         mix, radius from combinedSlip (outer ring = 1.0 = peak grip). Working-
+         zone ring is dashed at 0.7. -->
         <div>
-          <div class="flex items-center justify-between text-sm">
+          <div class="flex items-center justify-between text-xs">
             <NuxtLink
               to="/tune/alignment"
               class="group inline-flex items-center gap-1 text-zinc-400 transition-colors hover:text-green-300"
@@ -201,7 +210,7 @@ const trailPath = computed(() => {
               />
             </NuxtLink>
             <span
-              class="text-base tabular-nums"
+              class="text-sm tabular-nums"
               :style="{ color: combinedColor }"
             >{{ combinedSlip.toFixed(2) }}</span>
           </div>
@@ -282,7 +291,7 @@ const trailPath = computed(() => {
             class="inline-block h-3.5 w-3.5 rounded-sm"
             :style="{ background: temp }"
           />
-          <span class="text-base tabular-nums">{{ unitLabel.temperature === '°F' ? (tempC * 9 / 5 + 32).toFixed(0) : tempC.toFixed(0) }}<span class="text-zinc-500 text-xs">{{ unitLabel.temperature }}</span></span>
+          <span class="text-sm tabular-nums">{{ unitLabel.temperature === '°F' ? (tempC * 9 / 5 + 32).toFixed(0) : tempC.toFixed(0) }}<span class="text-zinc-500 text-[10px]">{{ unitLabel.temperature }}</span></span>
           <NuxtLink
             to="/tune/tire-pressure"
             class="group ml-auto inline-flex items-center gap-1 text-xs uppercase tracking-wider text-zinc-500 transition-colors hover:text-green-300"
