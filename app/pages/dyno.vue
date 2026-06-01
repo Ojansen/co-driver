@@ -80,11 +80,15 @@ function resetCurve() {
       Gear-tuning workbench
     </h1>
     <p class="mb-8 max-w-2xl font-mono text-sm leading-relaxed text-zinc-400">
-      Pick 3rd or 4th gear, roll down to about 2000 RPM, then hold full
-      throttle to redline. The high gear keeps tires hooked so the curve
-      fills cleanly from the bottom — 1st-gear launches skip the low end on
-      wheelspin. Use peak power for shift point, the shaded band as your
-      "stay-in-here" zone for gear spacing.
+      Two pulls fill this page. For the <span class="text-zinc-200">dyno
+        curve</span>, pick 3rd or 4th gear, roll down to about 2000 RPM, then
+      hold full throttle to redline — the high gear keeps tires hooked so
+      torque and power fill cleanly from the bottom. For the
+      <span class="text-zinc-200">gearing chart</span> below, do a separate
+      full-throttle run up through every gear: each gear's ratio is measured
+      the moment you spend a clean, clutch-engaged stretch in it, so the more
+      gears you pull through, the more curves appear. The shaded band marks
+      where torque holds within 90% of its peak.
     </p>
 
     <TelemetryWaiting
@@ -92,8 +96,9 @@ function resetCurve() {
       :connected="connected"
       class="mb-6"
     >
-      Enable Data Out in Forza and start a race or free-roam, then pick 3rd or
-      4th gear and hold full throttle to redline — the curve fills as you pull.
+      Enable Data Out in Forza and start a race or free-roam. A steady
+      high-gear pull to redline fills the dyno curve; a full-throttle run up
+      through every gear fills the per-gear force chart below it.
     </TelemetryWaiting>
 
     <DynoCurve
