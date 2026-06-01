@@ -66,7 +66,7 @@ const boostBarStyle = computed(() => props.boost >= 0
 </script>
 
 <template>
-  <div class="flex h-full flex-col justify-center gap-2">
+  <div class="mx-auto flex h-full w-full max-w-md flex-col justify-center gap-2">
     <svg
       viewBox="0 0 220 100"
       class="w-full"
