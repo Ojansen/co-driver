@@ -125,20 +125,18 @@ function formatRaceTime(s: number): string {
 <template>
   <div class="container mx-auto max-w-6xl">
     <!-- Floating hamburger — only nav chrome when the site header is hidden
-         on phone-sized viewports. Mirrors the /live page. -->
-    <UDropdownMenu
-      :items="navItems"
-      class="fixed top-1 left-1 z-40 hidden max-sm:block [@media(max-height:500px)]:block"
-    >
+         on phone-sized viewports. Mirrors the /live page; opens the shared
+         slide-in drawer. -->
+    <AppMobileNav :items="navItems">
       <UButton
         icon="i-lucide-menu"
         variant="ghost"
         color="neutral"
         size="sm"
         aria-label="Open menu"
-        class="bg-zinc-950/70 text-zinc-300 backdrop-blur-sm hover:text-zinc-100"
+        class="fixed top-1 left-1 z-40 hidden bg-zinc-950/70 text-zinc-300 backdrop-blur-sm hover:text-zinc-100 max-sm:block [@media(max-height:500px)]:block"
       />
-    </UDropdownMenu>
+    </AppMobileNav>
 
     <!-- Waiting state — never received a frame yet. -->
     <TelemetryWaiting

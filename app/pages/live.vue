@@ -82,23 +82,19 @@ const dvrSeconds = computed<number | null>(() => {
 <template>
   <div class="container mx-auto max-w-6xl">
     <!-- Floating hamburger — the only nav chrome on phone-sized viewports,
-         since the site header is hidden via `hideHeaderOnMobile`. Same
-         items as the layout's mobile dropdown so the menu shape stays
-         consistent across pages. Visibility class mirrors the header-hide
-         media query exactly. -->
-    <UDropdownMenu
-      :items="navItems"
-      class="fixed top-1 left-1 z-40 hidden max-sm:block [@media(max-height:500px)]:block"
-    >
+         since the site header is hidden via `hideHeaderOnMobile`. Opens the
+         same slide-in drawer as the layout so the menu shape stays consistent
+         across pages. Visibility class mirrors the header-hide media query. -->
+    <AppMobileNav :items="navItems">
       <UButton
         icon="i-lucide-menu"
         variant="ghost"
         color="neutral"
         size="sm"
         aria-label="Open menu"
-        class="bg-zinc-950/70 text-zinc-300 backdrop-blur-sm hover:text-zinc-100"
+        class="fixed top-1 left-1 z-40 hidden bg-zinc-950/70 text-zinc-300 backdrop-blur-sm hover:text-zinc-100 max-sm:block [@media(max-height:500px)]:block"
       />
-    </UDropdownMenu>
+    </AppMobileNav>
 
     <!-- Floating manual link — context-aware deep link to /manual/live.
          Sits in the top-right so it doesn't compete with the hamburger

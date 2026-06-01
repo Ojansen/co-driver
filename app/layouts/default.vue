@@ -149,38 +149,25 @@ useHead({
           >
             co-driver
           </NuxtLink>
-          <!-- Hamburger menu — portrait phone only. Inline nav row below
-               handles sm+ viewports. UDropdownMenu auto-closes on selection
-               via the Link items, so no manual open state needed. -->
-          <UDropdownMenu
-            :items="navItems"
-            class="sm:hidden"
-          >
+          <!-- Hamburger — portrait phone only; opens the slide-in drawer.
+               Inline UNavigationMenu below handles sm+ viewports. -->
+          <AppMobileNav :items="navItems">
             <UButton
               icon="i-lucide-menu"
               variant="ghost"
               color="neutral"
               size="xs"
               aria-label="Open menu"
+              class="sm:hidden"
             />
-          </UDropdownMenu>
-          <nav class="hidden items-center gap-1 sm:flex">
-            <!-- Iterates NAV_ITEMS so adding a new route requires only
-                 one edit (in app/utils/nav.ts). `exact: true` routes
-                 use `exact-active-class`; everything else uses
-                 `active-class` so nested paths keep the parent highlighted
-                 (e.g. /tune/dampers lights the "Tune" tab). -->
-            <NuxtLink
-              v-for="item in navItems"
-              :key="item.to"
-              :to="item.to"
-              :active-class="item.exact ? '' : 'border-zinc-600 bg-zinc-900 text-zinc-100'"
-              :exact-active-class="item.exact ? 'border-zinc-600 bg-zinc-900 text-zinc-100' : ''"
-              class="rounded-sm border border-transparent px-2.5 py-1 transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-zinc-100"
-            >
-              {{ item.label }}
-            </NuxtLink>
-          </nav>
+          </AppMobileNav>
+          <!-- Desktop nav. Grouped items (Telemetry / Reference) render as
+               dropdowns; the parent links keep their landing route one click
+               away. Active state is matched from `to` automatically. -->
+          <UNavigationMenu
+            :items="navItems"
+            class="hidden sm:flex"
+          />
         </div>
         <div class="flex items-center gap-3 sm:gap-4">
           <button
