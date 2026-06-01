@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { emptyDynoState, ingestFrame, snapshot, type DynoState } from '~/utils/dyno'
+import { emptyGearingState, ingestGearingFrame, snapshotGearing, type GearingState } from '~/utils/gearing'
 
 useHead({ title: 'Dyno · co-driver' })
 
 const { telemetry, hasReceivedFrame, connected } = useTelemetry()
 
-// Page-lifetime accumulator. Mutating a non-reactive object and bumping a
-// `version` ref is cheaper than wrapping the Map in a reactive proxy — Vue
+// Page-lifetime accumulators. Mutating non-reactive objects and bumping a
+// `version` ref is cheaper than wrapping the Maps in reactive proxies — Vue
 // would have to traverse every bucket on every change otherwise.
 let state: DynoState = emptyDynoState()
+let gearState: GearingState = emptyGearingState()
 const version = ref(0)
 const lastCarOrdinal = ref<number | null>(null)
 
@@ -18,7 +20,18 @@ const curve = computed(() => {
   return snapshot(state)
 })
 
+const gearingModel = computed(() => {
+  void version.value
+  return snapshotGearing(gearState)
+})
+
+// Gear-ratio derivation rides on FH6's per-wheel rotation channel; other feeds
+// don't carry it, so the chart sits out gracefully on those.
+const hasWheelRotation = computed(() => telemetry.value?.wheelRotation != null)
+
 const currentRpm = computed(() => telemetry.value?.rpm ?? 0)
+const currentGear = computed(() => telemetry.value?.gear ?? 0)
+const currentSpeedKmh = computed(() => telemetry.value?.speedKmh ?? 0)
 const carDisplay = computed(() => {
   const t = telemetry.value
   if (!t) return 'no telemetry'
@@ -31,14 +44,17 @@ watch(telemetry, (t) => {
   // Reset if the car changed under us
   if (lastCarOrdinal.value !== null && t.car.ordinal !== lastCarOrdinal.value) {
     state = emptyDynoState()
+    gearState = emptyGearingState()
   }
   lastCarOrdinal.value = t.car.ordinal
   ingestFrame(state, t)
+  ingestGearingFrame(gearState, t)
   version.value++
 })
 
 function resetCurve() {
   state = emptyDynoState()
+  gearState = emptyGearingState()
   lastCarOrdinal.value = telemetry.value?.car.ordinal ?? null
   version.value++
 }
@@ -88,6 +104,25 @@ function resetCurve() {
       mode="detailed"
       :current-rpm="currentRpm"
     />
+
+    <GearingChart
+      v-if="hasReceivedFrame && hasWheelRotation"
+      class="mt-6"
+      :dyno="curve"
+      :model="gearingModel"
+      title="gearing · force × speed"
+      :subtitle="carDisplay"
+      :current-rpm="currentRpm"
+      :current-gear="currentGear"
+      :current-speed-kmh="currentSpeedKmh"
+    />
+    <p
+      v-else-if="hasReceivedFrame"
+      class="mt-6 card p-4 font-mono text-xs leading-relaxed text-zinc-500"
+    >
+      Per-gear force/speed curves need Forza Horizon's wheel-rotation channel —
+      this feed doesn't provide it, so the gearing chart is unavailable.
+    </p>
 
     <section class="mt-6 card p-4 font-mono text-sm leading-relaxed text-zinc-300">
       <div class="mb-2 text-[10px] uppercase tracking-[0.3em] text-zinc-500">

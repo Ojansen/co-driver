@@ -415,19 +415,6 @@ function fmtBoost(n: number): string {
         />
       </g>
 
-      <!-- Detailed mode: shift-up label at peak power -->
-      <g v-if="mode === 'detailed' && peakPowerX !== null">
-        <text
-          :x="peakPowerX"
-          :y="PAD_T - 8"
-          text-anchor="middle"
-          fill="#fafafa"
-          font-size="10"
-          font-family="monospace"
-          font-weight="bold"
-        >SHIFT UP</text>
-      </g>
-
       <!-- Detailed mode: live RPM needle -->
       <g v-if="needleX !== null">
         <line
@@ -454,7 +441,7 @@ function fmtBoost(n: number): string {
     <div
       v-if="mode === 'detailed' && !isEmpty"
       class="mt-3 grid gap-2 text-sm tabular-nums"
-      :class="showBoost ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'"
+      :class="showBoost ? 'grid-cols-3' : 'grid-cols-2'"
     >
       <div class="rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-2">
         <div class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
@@ -496,14 +483,6 @@ function fmtBoost(n: number): string {
           {{ curve.peakBoost ? fmtBoost(curve.peakBoost.value) : '—' }}
           <span class="text-zinc-500">@</span>
           {{ curve.peakBoost ? fmtRpm(curve.peakBoost.rpm) : '—' }}
-        </div>
-      </div>
-      <div class="rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-2">
-        <div class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-          Suggested shift
-        </div>
-        <div class="mt-0.5 text-zinc-100">
-          {{ curve.peakPower ? fmtRpm(curve.peakPower.rpm) : '—' }} <span class="text-zinc-500">RPM</span>
         </div>
       </div>
     </div>
