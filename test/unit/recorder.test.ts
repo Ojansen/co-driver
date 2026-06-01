@@ -133,9 +133,14 @@ interface FrameOpts {
   isRaceOn: boolean
   timestampMs: number
   lapLast?: number
+  // CurrentLap (seconds). The recorder reads this on the first buffered frame
+  // of each lap to decide keep-vs-discard at the next LapNumber tick: ≈0 means
+  // the lap was caught from its start (keep), a large value means a mid-lap
+  // join (discard). Defaults to 0 — a clean grid start.
+  lapCurrent?: number
 }
 
-function makeFrame({ lapNumber, isRaceOn, timestampMs, lapLast = 0 }: FrameOpts): Telemetry {
+function makeFrame({ lapNumber, isRaceOn, timestampMs, lapLast = 0, lapCurrent = 0 }: FrameOpts): Telemetry {
   // A complete canonical frame — the columnar codec the recorder now writes
   // serialises every field, so the test data must be a full Telemetry (the
   // real adapters always emit one). The recorder only reads isRaceOn / lap /
@@ -154,7 +159,7 @@ function makeFrame({ lapNumber, isRaceOn, timestampMs, lapLast = 0 }: FrameOpts)
     yaw: 0, pitch: 0, roll: 0,
     position: v3(), velocity: v3(), acceleration: v3(), angularVelocity: v3(),
     car: { ordinal: 12345, class: 800, pi: 745, drivetrain: 0, cylinders: 4 },
-    lap: { number: lapNumber, racePosition: 1, current: 0, last: lapLast, best: 0, raceTime: 0, distance: 0 },
+    lap: { number: lapNumber, racePosition: 1, current: lapCurrent, last: lapLast, best: 0, raceTime: 0, distance: 0 },
     fuel: null, rawLength: 324
   }
 }
@@ -199,21 +204,23 @@ describe('recorder — uniform fallback across all event types (issue #5)', () =
       expect(replayed).toHaveLength(600)
     })
 
-    it('multi-lap shape (3 LapNumber transitions) → 2 lap rows via the LapNumber path', async () => {
-      // lap.number sequence: 0 (×50) → 1 (×100) → 2 (×100) → 3 (×100). 3
-      // transitions; the first is the discarded mid-lap join.
+    it('mid-lap join (recording started partway through lap 0) → opening lap discarded, 2 lap rows', async () => {
+      // lap.number sequence: 0 (×50) → 1 (×100) → 2 (×100) → 3 (×100). The
+      // opening lap-0 frames carry a large CurrentLap (we joined ~40 s in),
+      // so the 0→1 transition discards that partial lap. Each later lap is
+      // caught from its start (CurrentLap ≈ 0 at the boundary) and kept.
       const frames: Telemetry[] = []
       let t = 1000
-      for (let i = 0; i < 50; i++) frames.push(makeFrame({ lapNumber: 0, isRaceOn: true, timestampMs: t += 16 }))
+      for (let i = 0; i < 50; i++) frames.push(makeFrame({ lapNumber: 0, isRaceOn: true, timestampMs: t += 16, lapCurrent: 40 + i * 0.016 }))
       // First transition: 0→1, mid-lap join, discarded. lap.last carries the bogus first-lap time.
       frames.push(makeFrame({ lapNumber: 1, isRaceOn: true, timestampMs: t += 16, lapLast: 70.5 }))
-      for (let i = 0; i < 99; i++) frames.push(makeFrame({ lapNumber: 1, isRaceOn: true, timestampMs: t += 16 }))
+      for (let i = 0; i < 99; i++) frames.push(makeFrame({ lapNumber: 1, isRaceOn: true, timestampMs: t += 16, lapCurrent: i * 0.016 }))
       // Second transition: 1→2, real lap 1, lap.last is the just-completed time.
       frames.push(makeFrame({ lapNumber: 2, isRaceOn: true, timestampMs: t += 16, lapLast: 65.2 }))
-      for (let i = 0; i < 99; i++) frames.push(makeFrame({ lapNumber: 2, isRaceOn: true, timestampMs: t += 16 }))
+      for (let i = 0; i < 99; i++) frames.push(makeFrame({ lapNumber: 2, isRaceOn: true, timestampMs: t += 16, lapCurrent: i * 0.016 }))
       // Third transition: 2→3, real lap 2.
       frames.push(makeFrame({ lapNumber: 3, isRaceOn: true, timestampMs: t += 16, lapLast: 63.8 }))
-      for (let i = 0; i < 99; i++) frames.push(makeFrame({ lapNumber: 3, isRaceOn: true, timestampMs: t += 16 }))
+      for (let i = 0; i < 99; i++) frames.push(makeFrame({ lapNumber: 3, isRaceOn: true, timestampMs: t += 16, lapCurrent: i * 0.016 }))
 
       const laps = await runScenario(eventType, frames)
       expect(laps).toHaveLength(2)
@@ -221,6 +228,32 @@ describe('recorder — uniform fallback across all event types (issue #5)', () =
       expect(laps[0]!.timeMs).toBe(Math.round(65.2 * 1000))
       expect(laps[1]!.lapNumber).toBe(2)
       expect(laps[1]!.timeMs).toBe(Math.round(63.8 * 1000))
+    })
+
+    it('grid start (Record pressed during pre-race pause) → opening lap kept, 3 lap rows', async () => {
+      // The user's scenario: recording begins during the pre-race pause, so
+      // the opening lap runs from the grid with CurrentLap starting at ~0.
+      // That lap (lap 0) must be kept — previously it was thrown away as a
+      // "mid-lap join", which is exactly the off-by-one the user reported.
+      const frames: Telemetry[] = []
+      let t = 1000
+      for (let i = 0; i < 100; i++) frames.push(makeFrame({ lapNumber: 0, isRaceOn: true, timestampMs: t += 16, lapCurrent: i * 0.016 }))
+      // 0→1: opening lap completed — lap.last is its real time, now kept.
+      frames.push(makeFrame({ lapNumber: 1, isRaceOn: true, timestampMs: t += 16, lapLast: 70.5 }))
+      for (let i = 0; i < 99; i++) frames.push(makeFrame({ lapNumber: 1, isRaceOn: true, timestampMs: t += 16, lapCurrent: i * 0.016 }))
+      frames.push(makeFrame({ lapNumber: 2, isRaceOn: true, timestampMs: t += 16, lapLast: 65.2 }))
+      for (let i = 0; i < 99; i++) frames.push(makeFrame({ lapNumber: 2, isRaceOn: true, timestampMs: t += 16, lapCurrent: i * 0.016 }))
+      frames.push(makeFrame({ lapNumber: 3, isRaceOn: true, timestampMs: t += 16, lapLast: 63.8 }))
+      for (let i = 0; i < 99; i++) frames.push(makeFrame({ lapNumber: 3, isRaceOn: true, timestampMs: t += 16, lapCurrent: i * 0.016 }))
+
+      const laps = await runScenario(eventType, frames)
+      expect(laps).toHaveLength(3)
+      expect(laps[0]!.lapNumber).toBe(0)
+      expect(laps[0]!.timeMs).toBe(Math.round(70.5 * 1000))
+      expect(laps[1]!.lapNumber).toBe(1)
+      expect(laps[1]!.timeMs).toBe(Math.round(65.2 * 1000))
+      expect(laps[2]!.lapNumber).toBe(2)
+      expect(laps[2]!.timeMs).toBe(Math.round(63.8 * 1000))
     })
 
     it('finish-line UI flip after run started → buffer preserved, fallback flushes', async () => {

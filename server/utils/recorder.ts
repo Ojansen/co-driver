@@ -13,10 +13,13 @@
  * driving-to-the-event-entrance frames get dropped at the loading screen,
  * but a completed run survives the finish-line UI flipping the bit off.
  *
- * Lap-flushing rule: the first LapNumber transition after start() is a
- * mid-lap join (the lap started before recording began) — discard. Every
- * later transition is a fully-captured lap; gzip the frame buffer and
- * insert a `laps` row with time_ms = LastLap from the new packet.
+ * Lap-flushing rule: a LapNumber transition flushes the buffered lap only if
+ * it was caught from its start (the first buffered frame showed CurrentLap ≈
+ * 0). That keeps the opening lap when Record was pressed during the pre-race
+ * pause and the lap ran from the grid, while still discarding a genuine
+ * mid-lap join (recording started partway through a lap — first buffered
+ * frame already deep into CurrentLap). Each kept lap is gzipped and inserted
+ * as a `laps` row with time_ms = LastLap from the transition packet.
  *
  * Point-to-point fallback: when stop() fires with zero completed laps but
  * a non-trivial buffer, the whole Start→Stop window is flushed as one
@@ -44,6 +47,14 @@ import { forzaBus, type RecordingState, type TunePrompt } from './forza-bus'
  *  transition. 120 ≈ 2 s. Either this OR a LapNumber tick flips the guard. */
 const RUN_STARTED_MIN_FRAMES = 120
 
+/** CurrentLap (seconds) below which the first buffered frame of a lap is
+ *  treated as "caught from the start" — the lap clock had just reset, so the
+ *  whole lap is in the buffer and gets flushed at the next LapNumber tick.
+ *  Above it we assume a mid-lap join and discard the partial lap. At 60 Hz the
+ *  gap between isRaceOn going true and our first frame is tiny, so the opening
+ *  lap reads well under this; a genuine mid-lap join is always many s in. */
+const LAP_START_EPSILON_S = 2
+
 interface RecordingContext {
   sessionId: number
   eventId: number
@@ -58,6 +69,11 @@ interface RecordingContext {
   startedAt: Date
   lastLapNumber: number
   lapInProgressFromStart: boolean
+  // Whether the lap currently being buffered was caught from its start (first
+  // buffered frame showed CurrentLap ≈ 0). Re-evaluated each time a fresh lap
+  // buffer is seeded. Drives keep-vs-discard at the next LapNumber tick: a
+  // grid-start opening lap is kept; a mid-lap join is discarded. See §8.7.
+  caughtLapStart: boolean
   // Raw datagrams, not decoded frames — a flat byte buffer per frame keeps the
   // live-set tiny on long un-lapped runs (point-to-point / free-roam), where
   // this used to hold tens of thousands of deep Telemetry objects and the GC
@@ -163,6 +179,7 @@ export class Recorder {
       startedAt,
       lastLapNumber: frame.lap.number,
       lapInProgressFromStart: false,
+      caughtLapStart: false,
       // Buffer starts empty — the first isRaceOn=true frame seeds it via
       // onTelemetry. Pre-event frames (driving to the event in freeroam,
       // lobby, countdown) never make it in.
@@ -244,13 +261,20 @@ export class Recorder {
       if (ctx.buffer.length > 0 && !runStarted) {
         ctx.buffer = []
         ctx.firstTimestampMs = null
+        ctx.caughtLapStart = false
         ctx.lapInProgressFromStart = false
       }
       return
     }
 
     if (t.lap.number !== ctx.lastLapNumber) {
-      if (ctx.lapInProgressFromStart && ctx.buffer.length > 0) {
+      // Flush the buffered lap iff we caught it from its start. A grid-start
+      // opening lap (Record pressed during the pre-race pause, then resumed)
+      // has caughtLapStart=true and is kept; a mid-lap join leaves it false
+      // and the partial buffer is discarded. (Previously the *first*
+      // transition was unconditionally discarded, which threw away the
+      // opening lap of every race started from the pre-race menu.)
+      if (ctx.caughtLapStart && ctx.buffer.length > 0) {
         const completedLapNumber = ctx.lastLapNumber
         const lapTimeMs = Math.round(t.lap.last * 1000)
         // Hand off the current buffer to the async flush and start a fresh one
@@ -261,11 +285,18 @@ export class Recorder {
       ctx.lastLapNumber = t.lap.number
       ctx.buffer = []
       ctx.firstTimestampMs = null
+      ctx.caughtLapStart = false
       ctx.lapInProgressFromStart = true
       forzaBus.emit('recording_state', this.getState())
     }
 
-    if (ctx.firstTimestampMs === null) ctx.firstTimestampMs = t.timestampMs
+    if (ctx.firstTimestampMs === null) {
+      ctx.firstTimestampMs = t.timestampMs
+      // First frame of a fresh lap buffer: a near-zero CurrentLap means the
+      // lap clock just reset, so this lap is fully captured. A large value
+      // means we joined mid-lap → the buffer is dropped at the next tick.
+      ctx.caughtLapStart = t.lap.current < LAP_START_EPSILON_S
+    }
     ctx.lastTimestampMs = t.timestampMs
     // Store a flat per-frame record, not the deep Telemetry object — one byte
     // block per frame keeps the live-set small over a long run.
