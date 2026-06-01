@@ -15,6 +15,7 @@
  * open verification items (boost/engine-speed/tyre-RPS units, orientation order).
  */
 
+import type { GameId } from '#shared/games'
 import type { Quad, Telemetry } from '../utils/decode'
 import type { TelemetryAdapter } from './types'
 
@@ -94,9 +95,10 @@ function initState(): SmsState {
   }
 }
 
-/** Build a fresh, independently-stateful SMS UDP adapter. The module exports a
- *  singleton; tests use this for isolated instances. */
-export function createSmsUdpAdapter(): TelemetryAdapter {
+/** Build a fresh, independently-stateful SMS UDP adapter. `id` lets Automobilista
+ *  2 (in "Project CARS 2" UDP mode) reuse this decoder under its own game id; the
+ *  module also exports a `pcars2` singleton. Tests use this for isolated instances. */
+export function createSmsUdpAdapter(id: GameId = 'pcars2'): TelemetryAdapter {
   const s = initState()
 
   function decode(buf: Buffer): Telemetry | null {
@@ -157,7 +159,7 @@ export function createSmsUdpAdapter(): TelemetryAdapter {
   }
 
   return {
-    id: 'pcars2',
+    id,
     transport: { protocol: 'udp', defaultPort: 5606 },
     decode
   }

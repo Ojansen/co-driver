@@ -11,7 +11,7 @@
  * `Telemetry` model.
  */
 
-export type GameId = 'fh6' | 'fh5' | 'fm' | 'f1' | 'pcars2'
+export type GameId = 'fh6' | 'fh5' | 'fm' | 'f1' | 'pcars2' | 'ams2'
 
 /**
  * Feature areas that vary by game. The tuning stack (builds, tunes, events,
@@ -71,6 +71,14 @@ export const GAMES: readonly GameDef[] = [
     label: 'Project CARS 2',
     // Madness-engine "SMS UDP" feed (port 5606). Telemetry-only: the tune stack
     // is Forza-Horizon-specific. The decoder is shared with Automobilista 2.
+    telemetry: true,
+    capabilities: { tuning: false }
+  },
+  {
+    id: 'ams2',
+    label: 'Automobilista 2',
+    // Same Madness "SMS UDP" feed as Project CARS 2 (set UDP mode = Project CARS 2
+    // in-game); reuses the shared decoder on port 5606. Telemetry-only.
     telemetry: true,
     capabilities: { tuning: false }
   }

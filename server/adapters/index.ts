@@ -4,6 +4,7 @@ import { fh5Adapter } from './fh5'
 import { fh6Adapter } from './fh6'
 import { fmAdapter } from './fm'
 import { smsUdpAdapter } from './sms-udp'
+import { ams2Adapter } from './ams2'
 import type { TelemetryAdapter } from './types'
 
 export type { TelemetryAdapter } from './types'
@@ -18,7 +19,8 @@ const ADAPTERS: Partial<Record<GameId, TelemetryAdapter>> = {
   fh5: fh5Adapter,
   fm: fmAdapter,
   f1: f1Adapter,
-  pcars2: smsUdpAdapter
+  pcars2: smsUdpAdapter,
+  ams2: ams2Adapter
 }
 
 /**
