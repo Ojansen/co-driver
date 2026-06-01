@@ -16,6 +16,7 @@ co-driver listens for every supported game **at once** — launch any of them an
 | Forza Horizon 5 | ✅ | — | `5300` |
 | Forza Motorsport (FM7 / 2023) | ✅ | — | `5300` |
 | F1 25 / F1 26 | ✅ | — | `20777` |
+| Project CARS 2 | ✅ | — | `5606` |
 
 ## What you get
 
@@ -48,12 +49,13 @@ docker run -d --name co-driver \
   -p 3000:3000 \
   -p 5300:5300/udp \
   -p 20777:20777/udp \
+  -p 5606:5606/udp \
   -v co-driver:/app/data \
   --restart unless-stopped \
   obedbj/co-driver:latest
 ```
 
-Open <http://localhost:3000>. You'll see "WAITING FOR TELEMETRY" until a game starts sending — the container listens for Forza Horizon on `5300` and F1 on `20777` (drop a port mapping if you only play one). Migrations run automatically on first start; session/lap data lives in the named volume (`co-driver`) and survives container rebuilds. Multi‑arch — `linux/amd64` and `linux/arm64`.
+Open <http://localhost:3000>. You'll see "WAITING FOR TELEMETRY" until a game starts sending — the container listens for Forza Horizon on `5300`, F1 on `20777` and Project CARS 2 on `5606` (drop a port mapping if you don't play that game). Migrations run automatically on first start; session/lap data lives in the named volume (`co-driver`) and survives container rebuilds. Multi‑arch — `linux/amd64` and `linux/arm64`.
 
 ### Docker Compose
 
@@ -74,6 +76,7 @@ co-driver listens for every supported game at once — there's no server-side "a
 | Forza Horizon 6 / 5 | Settings → HUD and Gameplay → Data Out | `5300` |
 | Forza Motorsport (FM7 / 2023) | Settings → Gameplay & HUD → Data Out | `5300` |
 | F1 25 / F1 26 | Settings → Telemetry Settings → UDP | `20777` |
+| Project CARS 2 | Options → System → UDP | `5606` |
 
 ### Forza Horizon (FH5 / FH6)
 
@@ -113,6 +116,18 @@ Motorsport reuses Horizon's port `5300` — co-driver tells the two apart by pac
 
 F1 is telemetry-only: the live dashboards work, while the Forza-specific tuning, dyno and garage features stay hidden.
 
+### Project CARS 2
+
+> Options → System
+
+| Setting | Value |
+|---|---|
+| Shared Memory | **Project CARS 2** |
+| UDP Frequency | `1`–`9` (higher = more frequent) |
+| UDP Protocol Version | **Project CARS 2** |
+
+Project CARS 2 broadcasts on the whole subnet, so no target IP is needed — just open UDP `5606` to the server. Telemetry-only (no tuning stack), and note SMS telemetry carries no wheel-slip channels, so slip-based views stay empty.
+
 ### Finding your server's LAN IP
 
 ```bash
@@ -126,7 +141,7 @@ ipconfig
 
 ### Firewall
 
-The listener binds each game's UDP port on `0.0.0.0` (Forza Horizon `5300`, F1 `20777`). If your OS firewall blocks them, allow inbound UDP on the port(s) you use from your LAN.
+The listener binds each game's UDP port on `0.0.0.0` (Forza Horizon `5300`, F1 `20777`, Project CARS 2 `5606`). If your OS firewall blocks them, allow inbound UDP on the port(s) you use from your LAN.
 
 ### Start order: server before game (or apply the ICMP fix)
 
