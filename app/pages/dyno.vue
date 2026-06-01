@@ -20,14 +20,10 @@ const curve = computed(() => {
   return snapshot(state)
 })
 
-const gearingModel = computed(() => {
+const gearingGrid = computed(() => {
   void version.value
   return snapshotGearing(gearState)
 })
-
-// Gear-ratio derivation rides on FH6's per-wheel rotation channel; other feeds
-// don't carry it, so the chart sits out gracefully on those.
-const hasWheelRotation = computed(() => telemetry.value?.wheelRotation != null)
 
 const currentRpm = computed(() => telemetry.value?.rpm ?? 0)
 const carDisplay = computed(() => {
@@ -83,10 +79,10 @@ function resetCurve() {
       hold full throttle to redline — the high gear keeps tires hooked so
       torque and power fill cleanly from the bottom. For the
       <span class="text-zinc-200">gearing chart</span> below, do a separate
-      full-throttle run up through every gear: each gear's ratio is measured
-      the moment you spend a clean, clutch-engaged stretch in it, so the more
-      gears you pull through, the more curves appear. The shaded band marks
-      where torque holds within 90% of its peak.
+      full-throttle run up through every gear on a flat road: it measures the
+      acceleration and power you actually pull at each speed in each gear, so
+      the more gears you run through, the more curves appear. The shaded band on
+      the dyno marks where torque holds within 90% of its peak.
     </p>
 
     <TelemetryWaiting
@@ -96,7 +92,7 @@ function resetCurve() {
     >
       Enable Data Out in Forza and start a race or free-roam. A steady
       high-gear pull to redline fills the dyno curve; a full-throttle run up
-      through every gear fills the per-gear force chart below it.
+      through every gear fills the per-gear power-vs-traction chart below it.
     </TelemetryWaiting>
 
     <DynoCurve
@@ -109,20 +105,12 @@ function resetCurve() {
     />
 
     <GearingPlot
-      v-if="hasReceivedFrame && hasWheelRotation"
+      v-if="hasReceivedFrame"
       class="mt-6"
-      :dyno="curve"
-      :model="gearingModel"
-      title="gearing · force × speed"
+      :grid="gearingGrid"
+      title="gearing · power vs traction"
       :subtitle="carDisplay"
     />
-    <p
-      v-else-if="hasReceivedFrame"
-      class="mt-6 card p-4 font-mono text-xs leading-relaxed text-zinc-500"
-    >
-      Per-gear force/speed curves need Forza Horizon's wheel-rotation channel —
-      this feed doesn't provide it, so the gearing chart is unavailable.
-    </p>
 
     <section class="mt-6 card p-4 font-mono text-sm leading-relaxed text-zinc-300">
       <div class="mb-2 text-[10px] uppercase tracking-[0.3em] text-zinc-500">

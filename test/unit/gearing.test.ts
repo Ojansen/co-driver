@@ -1,188 +1,124 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildGearingGrid,
   emptyGearingState,
   ingestGearingFrame,
   snapshotGearing
 } from '../../app/utils/gearing'
-import type { GearingModel } from '../../app/utils/gearing'
-import type { DynoCurve } from '../../app/utils/dyno'
-import type { Quad, Telemetry } from '../../server/utils/decode'
+import type { Telemetry } from '../../server/utils/decode'
 
-const RPM_TO_RADS = Math.PI / 30
+const G = 9.80665
 
-function quad(v: number): Quad {
-  return { fl: v, fr: v, rl: v, rr: v }
-}
-
-/**
- * Frame fixture for a steady pull in one gear. `ratio` and `radius` define the
- * synthetic drivetrain; wheel rotation is back-computed so the deriver should
- * recover exactly those values. RWD by default.
- */
-function gearFrame(opts: {
-  gear: number
-  rpm: number
-  ratio: number
-  radius?: number
-  drivetrain?: number
-  clutch?: number
-  slip?: number
-  torque?: number
-}): Telemetry {
-  const radius = opts.radius ?? 0.3
-  const drivetrain = opts.drivetrain ?? 1
-  const wWheel = (opts.rpm * RPM_TO_RADS) / opts.ratio
-  const speedKmh = wWheel * radius * 3.6
+/** Frame fixture — only the channels the gearing binner reads. */
+function frame(overrides: Partial<Telemetry> = {}): Telemetry {
   return {
-    gear: opts.gear,
-    rpm: opts.rpm,
-    rpmIdle: 800,
-    rpmMax: 8000,
-    clutch: opts.clutch ?? 0,
-    throttle: 1,
-    speedKmh,
-    torque: opts.torque ?? 400,
+    timestampMs: 0,
+    speedKmh: 0,
     power: 0,
-    wheelRotation: quad(wWheel),
-    slipRatio: quad(opts.slip ?? 0),
-    car: { ordinal: 1, class: 5, pi: 800, drivetrain, cylinders: 8 }
+    gear: 2,
+    throttle: 1,
+    ...overrides
   } as Telemetry
 }
 
+/**
+ * A constant-acceleration WOT pull in one gear. `aMps2` is the longitudinal
+ * acceleration; frames are `dtMs` apart with `power` (W) held flat.
+ */
+function pull(opts: {
+  gear: number
+  v0Kmh: number
+  aMps2: number
+  dtMs: number
+  n: number
+  powerW: number
+}): Telemetry[] {
+  const out: Telemetry[] = []
+  const dtS = opts.dtMs / 1000
+  let vMps = opts.v0Kmh / 3.6
+  for (let i = 0; i < opts.n; i++) {
+    out.push(frame({
+      timestampMs: i * opts.dtMs,
+      speedKmh: vMps * 3.6,
+      power: opts.powerW,
+      gear: opts.gear,
+      throttle: 1
+    }))
+    vMps += opts.aMps2 * dtS
+  }
+  return out
+}
+
 describe('ingestGearingFrame / snapshotGearing', () => {
-  it('recovers the combined ratio and rolling radius from clean frames', () => {
+  it('bins measured power and longitudinal g by gear across a shared speed axis', () => {
     const state = emptyGearingState()
-    for (let i = 0; i < 6; i++) {
-      ingestGearingFrame(state, gearFrame({ gear: 3, rpm: 5000, ratio: 8, radius: 0.31 }))
-    }
-    const model = snapshotGearing(state)
-    expect(model.gears).toHaveLength(1)
-    expect(model.gears[0]!.gear).toBe(3)
-    expect(model.gears[0]!.ratio).toBeCloseTo(8, 5)
-    expect(model.tireRadiusM).toBeCloseTo(0.31, 5)
-    expect(model.drivetrain).toBe(1)
-  })
-
-  it('ignores frames with a slipping clutch, neutral, or reverse', () => {
-    const state = emptyGearingState()
-    ingestGearingFrame(state, gearFrame({ gear: 3, rpm: 5000, ratio: 8, clutch: 0.5 }))
-    ingestGearingFrame(state, gearFrame({ gear: 11, rpm: 5000, ratio: 8 })) // neutral mid-shift
-    ingestGearingFrame(state, gearFrame({ gear: 0, rpm: 5000, ratio: 8 })) // reverse
-    expect(snapshotGearing(state).gears).toHaveLength(0)
-  })
-
-  it('does not trust a gear below the minimum sample count', () => {
-    const state = emptyGearingState()
-    ingestGearingFrame(state, gearFrame({ gear: 2, rpm: 4000, ratio: 10 }))
-    ingestGearingFrame(state, gearFrame({ gear: 2, rpm: 4000, ratio: 10 }))
-    expect(snapshotGearing(state).gears).toHaveLength(0)
-  })
-
-  it('recovers ratio under wheelspin but skips the radius read', () => {
-    const state = emptyGearingState()
-    // Driven (rear) wheels spin fast; speed is set independently so the radius
-    // read would be wrong — slip gate must reject it. Ratio still holds.
-    for (let i = 0; i < 6; i++) {
-      const f = gearFrame({ gear: 2, rpm: 6000, ratio: 12, slip: 0.4 })
+    // ~0.5 g pull in 3rd gear from 60 km/h, 50 ms frames.
+    for (const f of pull({ gear: 3, v0Kmh: 60, aMps2: 0.5 * G, dtMs: 50, n: 40, powerW: 150_000 })) {
       ingestGearingFrame(state, f)
     }
-    const model = snapshotGearing(state)
-    expect(model.gears[0]!.ratio).toBeCloseTo(12, 5)
-    expect(model.tireRadiusM).toBeNull() // every radius sample slip-gated out
-  })
+    const grid = snapshotGearing(state)
 
-  it('is a no-op without the FH6 wheelRotation channel', () => {
-    const state = emptyGearingState()
-    const f = gearFrame({ gear: 3, rpm: 5000, ratio: 8 })
-    ingestGearingFrame(state, { ...f, wheelRotation: null } as Telemetry)
-    expect(snapshotGearing(state).gears).toHaveLength(0)
-  })
-})
+    expect(grid.hasAccel).toBe(true)
+    expect(grid.hasPower).toBe(true)
+    expect(grid.series).toHaveLength(1)
+    expect(grid.series[0]!.gear).toBe(3)
 
-describe('buildGearingGrid', () => {
-  const dyno: DynoCurve = {
-    buckets: [
-      { rpm: 2000, maxTorqueNm: 300, maxPowerKw: 63, maxBoostAtm: 0, samples: 5 },
-      { rpm: 4000, maxTorqueNm: 400, maxPowerKw: 168, maxBoostAtm: 0, samples: 5 },
-      { rpm: 6000, maxTorqueNm: 350, maxPowerKw: 220, maxBoostAtm: 0, samples: 5 }
-    ],
-    peakTorque: { rpm: 4000, value: 400 },
-    peakPower: { rpm: 6000, value: 220 },
-    peakBoost: null,
-    rpmIdle: 800,
-    rpmMax: 6500
-  }
+    // Constant 0.5 g pull → mean g ≈ 0.5 everywhere it's populated.
+    expect(grid.maxAccelG).toBeCloseTo(0.5, 2)
+    // Flat 150 kW.
+    expect(grid.maxPowerKw).toBeCloseTo(150, 5)
 
-  const model: GearingModel = {
-    gears: [
-      { gear: 1, ratio: 12, samples: 20 },
-      { gear: 2, ratio: 8, samples: 20 }
-    ],
-    tireRadiusM: 0.3,
-    drivetrain: 1
-  }
-
-  /** Find the grid index whose speed is closest to `kmh`. */
-  function idxAt(grid: ReturnType<typeof buildGearingGrid>, kmh: number): number {
-    let best = 0
-    for (let i = 1; i < grid.speedsKmh.length; i++) {
-      if (Math.abs(grid.speedsKmh[i]! - kmh) < Math.abs(grid.speedsKmh[best]! - kmh)) best = i
-    }
-    return best
-  }
-
-  it('shares one ascending speed axis across all gear series', () => {
-    const grid = buildGearingGrid(dyno, model, { stepKmh: 1 })
-    expect(grid.hasForce).toBe(true)
-    expect(grid.series).toHaveLength(2)
-    expect(grid.speedsKmh[0]).toBe(0)
-    // Every series is sampled on the same grid.
+    // Every series is aligned to the shared speed grid.
+    expect(grid.speedsKmh.length).toBeGreaterThan(0)
     for (const s of grid.series) {
-      expect(s.force).toHaveLength(grid.speedsKmh.length)
+      expect(s.accelG).toHaveLength(grid.speedsKmh.length)
       expect(s.power).toHaveLength(grid.speedsKmh.length)
-      expect(s.rpm).toHaveLength(grid.speedsKmh.length)
+    }
+    // Ascending speed axis.
+    for (let i = 1; i < grid.speedsKmh.length; i++) {
+      expect(grid.speedsKmh[i]!).toBeGreaterThan(grid.speedsKmh[i - 1]!)
     }
   })
 
-  it('nulls out speeds outside a gear\'s rpm range, fills inside it', () => {
-    const grid = buildGearingGrid(dyno, model, { stepKmh: 1 })
-    const g1 = grid.series[0]!
-    // At very low speed gear 1 is below its lowest measured rpm → gap.
-    expect(g1.force[0]).toBeNull()
-    // Somewhere it must be populated.
-    expect(g1.force.some(v => v !== null)).toBe(true)
-  })
-
-  it('force = torque(rpm) · ratio / radius at every populated grid point', () => {
-    const grid = buildGearingGrid(dyno, model, { stepKmh: 0.5 })
-    const radius = 0.3
-    // Near gear 1 @ ~4000 rpm — between the 2000 (300 Nm) and 4000 (400 Nm) buckets.
-    const wEngine = 4000 * (Math.PI / 30)
-    const speedKmh = ((wEngine / 12) * radius) * 3.6
-    const i = idxAt(grid, speedKmh)
-    const r = grid.series[0]!.rpm[i]!
-    const expTorque = 300 + ((r - 2000) / (4000 - 2000)) * (400 - 300)
-    expect(grid.series[0]!.force[i]).toBeCloseTo((expTorque * 12) / radius, 2)
-  })
-
-  it('puts a higher gear at a higher speed for equal rpm (≈4000)', () => {
-    const grid = buildGearingGrid(dyno, model, { stepKmh: 1 })
-    const rpmNear = (s: number[], rpm: (number | null)[], target: number) => {
-      let best = -1
-      for (let i = 0; i < rpm.length; i++) {
-        if (rpm[i] === null) continue
-        if (best < 0 || Math.abs(rpm[i]! - target) < Math.abs(rpm[best]! - target)) best = i
-      }
-      return s[best]!
+  it('places each gear on the same speed axis with gaps where it has no samples', () => {
+    const state = emptyGearingState()
+    for (const f of pull({ gear: 2, v0Kmh: 40, aMps2: 0.6 * G, dtMs: 50, n: 20, powerW: 120_000 })) {
+      ingestGearingFrame(state, f)
     }
-    const g1Speed = rpmNear(grid.speedsKmh, grid.series[0]!.rpm, 4000)
-    const g2Speed = rpmNear(grid.speedsKmh, grid.series[1]!.rpm, 4000)
-    expect(g2Speed).toBeGreaterThan(g1Speed)
+    for (const f of pull({ gear: 4, v0Kmh: 120, aMps2: 0.25 * G, dtMs: 50, n: 20, powerW: 140_000 })) {
+      ingestGearingFrame(state, f)
+    }
+    const grid = snapshotGearing(state)
+    expect(grid.series.map(s => s.gear)).toEqual([2, 4])
+
+    const g2 = grid.series[0]!
+    const g4 = grid.series[1]!
+    // Low-speed buckets belong to gear 2 only; high-speed to gear 4 only.
+    const lowIdx = grid.speedsKmh.findIndex(s => s <= 44)
+    const highIdx = grid.speedsKmh.findIndex(s => s >= 124)
+    expect(g2.power[lowIdx]).not.toBeNull()
+    expect(g4.power[lowIdx]).toBeNull()
+    expect(g4.power[highIdx]).not.toBeNull()
+    expect(g2.power[highIdx]).toBeNull()
   })
 
-  it('falls back to power-only when torque is unavailable', () => {
-    const grid = buildGearingGrid({ ...dyno, peakTorque: null }, model)
-    expect(grid.hasForce).toBe(false)
+  it('excludes part-throttle frames, neutral and reverse', () => {
+    const state = emptyGearingState()
+    ingestGearingFrame(state, frame({ timestampMs: 0, speedKmh: 50, power: 100_000, gear: 3, throttle: 0.5 }))
+    ingestGearingFrame(state, frame({ timestampMs: 50, speedKmh: 52, power: 100_000, gear: 3, throttle: 0.5 }))
+    ingestGearingFrame(state, frame({ timestampMs: 100, speedKmh: 54, power: 100_000, gear: 11, throttle: 1 }))
+    ingestGearingFrame(state, frame({ timestampMs: 150, speedKmh: 56, power: 100_000, gear: 0, throttle: 1 }))
+    const grid = snapshotGearing(state)
+    expect(grid.series).toHaveLength(0)
+    expect(grid.hasPower).toBe(false)
+  })
+
+  it('drops the speed derivative across a frame gap (pause), keeping power', () => {
+    const state = emptyGearingState()
+    ingestGearingFrame(state, frame({ timestampMs: 0, speedKmh: 80, power: 130_000, gear: 4, throttle: 1 }))
+    // 5 s later — dt exceeds the gap bound, so no trustworthy g, but power still bins.
+    ingestGearingFrame(state, frame({ timestampMs: 5000, speedKmh: 82, power: 130_000, gear: 4, throttle: 1 }))
+    const grid = snapshotGearing(state)
+    expect(grid.hasPower).toBe(true)
+    expect(grid.hasAccel).toBe(false)
   })
 })

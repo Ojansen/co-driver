@@ -1,16 +1,13 @@
 <script setup lang="ts">
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
-import { buildGearingGrid, type GearingGrid, type GearingModel } from '~/utils/gearing'
-import type { DynoCurve } from '~/utils/dyno'
+import type { GearingGrid } from '~/utils/gearing'
 
 const { prefs, format, unitLabel } = useUnits()
 
 const props = withDefaults(defineProps<{
-  /** Dyno torque/power curve — supplies the engine output mapped onto each gear. */
-  dyno: DynoCurve
-  /** Measured gear ratios + rolling radius. */
-  model: GearingModel
+  /** Per-gear measured accel-g / power on a shared speed grid. */
+  grid: GearingGrid
   title?: string
   subtitle?: string
 }>(), {
@@ -19,7 +16,6 @@ const props = withDefaults(defineProps<{
 })
 
 const KMH_TO_MPH = 0.621371
-const N_TO_LBF = 0.224809
 const KW_TO_HP = 1.34102
 const KW_TO_PS = 1.35962
 
@@ -32,101 +28,80 @@ function gearColor(gear: number): string {
   return GEAR_COLORS[(gear - 1) % GEAR_COLORS.length]!
 }
 
-// All panels share this instance's cursor + x-scale sync group.
 const uid = Math.random().toString(36).slice(2, 9)
 const syncKey = `gearing-${uid}`
 
-// --- display converters ---------------------------------------------------
 const dispSpeed = (kmh: number) => prefs.value.speed === 'mph' ? kmh * KMH_TO_MPH : kmh
-const forceUnit = computed(() => prefs.value.downforce === 'lb' ? 'lbf' : 'kN')
-const dispForceNum = (n: number) => prefs.value.downforce === 'lb' ? n * N_TO_LBF : n / 1000
 const dispPowerNum = (kw: number) => {
   if (prefs.value.power === 'hp') return kw * KW_TO_HP
   if (prefs.value.power === 'ps') return kw * KW_TO_PS
   return kw
 }
 
-// --- panel definitions ----------------------------------------------------
-type PanelKey = 'force' | 'power' | 'rpm'
-interface Panel {
-  key: PanelKey
+// --- Y-axis lens ----------------------------------------------------------
+type Metric = 'accel' | 'power'
+const metric = ref<Metric>('accel')
+// Fall back to whichever lens actually has data, but respect a manual pick.
+watch(() => [props.grid.hasAccel, props.grid.hasPower] as const, ([hasAccel, hasPower]) => {
+  if (metric.value === 'accel' && !hasAccel && hasPower) metric.value = 'power'
+  else if (metric.value === 'power' && !hasPower && hasAccel) metric.value = 'accel'
+})
+
+interface MetricDef {
   label: string
   unit: string
-  height: number
-  /** y-axis upper bound. */
   max: () => number
-  /** hover-pill formatter. */
   fmt: (v: number) => string
-  /** y-axis tick formatter. */
   axis: (v: number) => string
+  series: (s: GearingGrid['series'][number]) => (number | null)[]
 }
-
-// Throttled snapshot of the grid — recomputed off the live curve at most a few
-// times a second so the canvases aren't torn down every frame (rAF pacing).
-const grid = shallowRef<GearingGrid>(buildGearingGrid(props.dyno, props.model))
-
-const allPanels: Panel[] = [
-  {
-    key: 'force',
-    label: 'TRACTIVE FORCE',
-    unit: forceUnit.value,
-    height: 168,
-    max: () => Math.max(grid.value.maxForceN * 1.05, 1),
-    fmt: v => `${dispForceNum(v).toFixed(prefs.value.downforce === 'lb' ? 0 : 1)} ${forceUnit.value}`,
-    axis: v => dispForceNum(v).toFixed(prefs.value.downforce === 'lb' ? 0 : 1)
+const METRICS: Record<Metric, MetricDef> = {
+  accel: {
+    label: 'ACCELERATION',
+    unit: 'g',
+    max: () => Math.max(props.grid.maxAccelG * 1.1, 0.1),
+    fmt: v => `${v.toFixed(2)} g`,
+    axis: v => v.toFixed(2),
+    series: s => s.accelG
   },
-  {
-    key: 'power',
+  power: {
     label: 'WHEEL POWER',
     unit: unitLabel.power,
-    height: 108,
-    max: () => Math.max(grid.value.maxPowerKw * 1.05, 1),
+    max: () => Math.max(props.grid.maxPowerKw * 1.05, 1),
     fmt: v => format.power(v),
-    axis: v => Math.round(dispPowerNum(v)).toString()
-  },
-  {
-    key: 'rpm',
-    label: 'ENGINE RPM',
-    unit: 'rpm',
-    height: 92,
-    max: () => Math.max(Math.ceil(grid.value.maxRpm / 1000) * 1000, 1000),
-    fmt: v => `${Math.round(v)} rpm`,
-    axis: v => (v / 1000).toFixed(1) + 'k'
+    axis: v => Math.round(dispPowerNum(v)).toString(),
+    series: s => s.power
   }
-]
+}
+const active = computed(() => METRICS[metric.value])
 
-// Force needs torque; drop that panel when the feed doesn't carry it.
-const panels = computed<Panel[]>(() =>
-  grid.value.hasForce ? allPanels : allPanels.filter(p => p.key !== 'force')
-)
-
-const isEmpty = computed(() => grid.value.series.length === 0 || grid.value.speedsKmh.length === 0)
+const isEmpty = computed(() => props.grid.series.length === 0 || props.grid.speedsKmh.length === 0)
 
 // --- uPlot lifecycle ------------------------------------------------------
-const plotEls = ref<HTMLDivElement[]>([])
-const plots: uPlot[] = []
+const plotEl = ref<HTMLDivElement | null>(null)
+let plot: uPlot | null = null
 let resizeObs: ResizeObserver | null = null
 const cursorIdx = ref<number | null>(null)
+const PLOT_H = 300
 
-function buildData(key: PanelKey): uPlot.AlignedData {
-  const g = grid.value
-  const series = g.series.map(s => s[key])
-  return [g.speedsKmh, ...series] as unknown as uPlot.AlignedData
+function buildData(): uPlot.AlignedData {
+  const series = props.grid.series.map(s => active.value.series(s))
+  return [props.grid.speedsKmh, ...series] as unknown as uPlot.AlignedData
 }
 
-function buildOpts(panel: Panel, isLast: boolean, width: number): uPlot.Options {
+function buildOpts(width: number): uPlot.Options {
   const series: uPlot.Series[] = [
     { label: 'speed' },
-    ...grid.value.series.map(s => ({
+    ...props.grid.series.map(s => ({
       label: String(s.gear),
       stroke: gearColor(s.gear),
-      width: 1.7,
+      width: 1.8,
       points: { show: false }
     }))
   ]
   return {
     width,
-    height: panel.height,
+    height: PLOT_H,
     pxAlign: 0,
     legend: { show: false },
     cursor: {
@@ -141,8 +116,7 @@ function buildOpts(panel: Panel, isLast: boolean, width: number): uPlot.Options 
         grid: { stroke: '#27272a', width: 0.5 },
         ticks: { stroke: '#27272a', width: 0.5, size: 4 },
         font: '9px monospace',
-        show: isLast,
-        size: isLast ? 22 : 0,
+        size: 26,
         values: (_u, vals) => vals.map(v => Math.round(dispSpeed(v)).toString())
       },
       {
@@ -150,13 +124,13 @@ function buildOpts(panel: Panel, isLast: boolean, width: number): uPlot.Options 
         grid: { stroke: '#27272a', width: 0.5 },
         ticks: { stroke: '#27272a', width: 0.5, size: 4 },
         font: '9px monospace',
-        size: 40,
-        values: (_u, vals) => vals.map(v => panel.axis(v))
+        size: 42,
+        values: (_u, vals) => vals.map(v => active.value.axis(v))
       }
     ],
     scales: {
       x: { time: false },
-      y: { range: () => [0, panel.max()] }
+      y: { range: () => [0, active.value.max()] }
     },
     series,
     hooks: {
@@ -170,123 +144,83 @@ function buildOpts(panel: Panel, isLast: boolean, width: number): uPlot.Options 
   }
 }
 
-function renderPlots(): void {
-  destroyPlots()
-  if (isEmpty.value) return
-  const list = panels.value
-  for (let i = 0; i < list.length; i++) {
-    const panel = list[i]!
-    const el = plotEls.value[i]
-    if (!el) continue
-    const w = el.clientWidth || 1000
-    plots[i] = new uPlot(buildOpts(panel, i === list.length - 1, w), buildData(panel.key), el)
-  }
+function renderPlot(): void {
+  destroyPlot()
+  if (isEmpty.value || !plotEl.value) return
+  const w = plotEl.value.clientWidth || 1000
+  plot = new uPlot(buildOpts(w), buildData(), plotEl.value)
 }
 
-function destroyPlots(): void {
-  for (const p of plots) p?.destroy()
-  plots.length = 0
+function destroyPlot(): void {
+  plot?.destroy()
+  plot = null
 }
 
-// Structure fingerprint — when it changes the plots must be rebuilt; otherwise a
-// cheap setData keeps the live curve flowing without tearing down the canvases.
+// Structure fingerprint — rebuild on gear/grid-shape change; otherwise a cheap
+// setData keeps the live curve flowing without tearing down the canvas.
 function structureKey(): string {
-  const g = grid.value
-  return `${g.hasForce}|${g.speedsKmh.length}|${g.series.map(s => s.gear).join(',')}`
+  return `${props.grid.speedsKmh.length}|${props.grid.series.map(s => s.gear).join(',')}`
 }
 let lastStructure = ''
 
-function syncPlots(): void {
+function syncPlot(): void {
   const key = structureKey()
-  if (key !== lastStructure || plots.length !== panels.value.length) {
+  if (!plot || key !== lastStructure) {
     lastStructure = key
-    nextTick(() => renderPlots())
+    nextTick(() => renderPlot())
     return
   }
-  const list = panels.value
-  for (let i = 0; i < list.length; i++) plots[i]?.setData(buildData(list[i]!.key))
+  plot.setData(buildData())
 }
 
 function resetZoom(): void {
-  if (isEmpty.value) return
-  const xs = grid.value.speedsKmh
-  const min = xs[0] ?? 0
-  const max = xs[xs.length - 1] ?? 0
-  for (const p of plots) p?.setScale('x', { min, max })
+  if (isEmpty.value || !plot) return
+  const xs = props.grid.speedsKmh
+  plot.setScale('x', { min: xs[0] ?? 0, max: xs[xs.length - 1] ?? 0 })
 }
 
 onMounted(() => {
   lastStructure = structureKey()
-  renderPlots()
+  renderPlot()
   resizeObs = new ResizeObserver(() => {
-    const list = panels.value
-    for (let i = 0; i < plots.length; i++) {
-      const p = plots[i]
-      const el = plotEls.value[i]
-      const panel = list[i]
-      if (!p || !el || !panel) continue
-      const w = el.clientWidth
-      if (w > 0) p.setSize({ width: w, height: panel.height })
+    if (plot && plotEl.value && plotEl.value.clientWidth > 0) {
+      plot.setSize({ width: plotEl.value.clientWidth, height: PLOT_H })
     }
   })
-  for (const el of plotEls.value) resizeObs.observe(el)
+  if (plotEl.value) resizeObs.observe(plotEl.value)
 })
 
 onBeforeUnmount(() => {
   resizeObs?.disconnect()
-  destroyPlots()
+  destroyPlot()
 })
 
-// Recompute the grid + push to the plots at most ~3×/s while driving.
-watchThrottled(
-  () => [props.dyno, props.model] as const,
-  () => {
-    grid.value = buildGearingGrid(props.dyno, props.model)
-    syncPlots()
-  },
-  { throttle: 300 }
-)
-
-// Unit-preference changes don't alter data, only labels — redraw to reformat.
-watch(
-  () => [prefs.value.speed, prefs.value.power, prefs.value.downforce],
-  () => {
-    for (const p of plots) p?.redraw()
-  }
-)
+// Push new data to the plot at most ~3x/s while driving (rAF-budget friendly).
+watchThrottled(() => props.grid, () => syncPlot(), { throttle: 300 })
+// Switching lens or units is instant — rebuild so axes + ranges follow.
+watch([metric, () => prefs.value.speed, () => prefs.value.power], () => {
+  if (plot) plot.setData(buildData())
+  plot?.redraw()
+})
 
 // --- hover legend ---------------------------------------------------------
 interface HoverGear {
   gear: number
   color: string
-  force: number | null
-  power: number | null
-  rpm: number | null
+  value: number | null
 }
 const hover = computed<{ speedKmh: number, gears: HoverGear[] } | null>(() => {
   const i = cursorIdx.value
-  const g = grid.value
+  const g = props.grid
   if (i === null || i < 0 || i >= g.speedsKmh.length) return null
   return {
     speedKmh: g.speedsKmh[i]!,
     gears: g.series.map(s => ({
       gear: s.gear,
       color: gearColor(s.gear),
-      force: s.force[i] ?? null,
-      power: s.power[i] ?? null,
-      rpm: s.rpm[i] ?? null
+      value: active.value.series(s)[i] ?? null
     }))
   }
-})
-
-function hoverValue(panel: Panel, hg: HoverGear): string | null {
-  const v = hg[panel.key]
-  return v === null ? null : panel.fmt(v)
-}
-
-const radiusNote = computed(() => {
-  if (props.model.tireRadiusM === null) return 'radius est. pending'
-  return `tire r ≈ ${(props.model.tireRadiusM * 100).toFixed(1)} cm`
 })
 </script>
 
@@ -301,7 +235,6 @@ const radiusNote = computed(() => {
             class="ml-2 normal-case tracking-normal text-zinc-500"
           >{{ subtitle }}</span>
         </span>
-        <span class="normal-case tracking-normal text-zinc-500">{{ radiusNote }}</span>
         <span
           v-if="hover"
           class="rounded bg-zinc-800/80 px-1.5 py-0.5 normal-case tracking-normal text-zinc-200 tabular-nums"
@@ -310,9 +243,26 @@ const radiusNote = computed(() => {
           v-if="!isEmpty"
           type="button"
           class="rounded border border-zinc-700 px-1.5 py-0.5 normal-case tracking-normal text-zinc-300 hover:bg-zinc-800"
-          title="Reset zoom (or double-click any panel)"
+          title="Reset zoom (or double-click the plot)"
           @click="resetZoom"
         >reset zoom</button>
+        <!-- Y-axis lens toggle -->
+        <span class="flex overflow-hidden rounded border border-zinc-700">
+          <button
+            type="button"
+            class="px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] transition-colors"
+            :class="metric === 'accel' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'"
+            :disabled="!grid.hasAccel"
+            @click="metric = 'accel'"
+          >accel g</button>
+          <button
+            type="button"
+            class="px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] transition-colors"
+            :class="metric === 'power' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'"
+            :disabled="!grid.hasPower"
+            @click="metric = 'power'"
+          >power</button>
+        </span>
       </span>
       <!-- Gear color legend -->
       <span class="flex flex-wrap items-center gap-x-3 gap-y-1 normal-case tracking-normal">
@@ -332,52 +282,46 @@ const radiusNote = computed(() => {
 
     <div
       v-if="isEmpty"
-      class="flex h-56 items-center justify-center rounded-md border border-dashed border-zinc-800 bg-zinc-900/30 text-center font-mono text-xs text-zinc-500"
+      class="flex h-64 items-center justify-center rounded-md border border-dashed border-zinc-800 bg-zinc-900/30 text-center font-mono text-xs text-zinc-500"
     >
-      Pull through every gear at full throttle — each gear's curves appear once
-      its ratio is measured and the dyno has torque/power at that speed.
+      Pull through every gear at full throttle on a flat road — each gear's curve
+      fills in as you measure its acceleration across the speed range.
     </div>
 
     <div
       v-else
-      class="space-y-0.5"
+      class="relative"
     >
-      <div
-        v-for="(panel, i) in panels"
-        :key="panel.key"
-        class="relative"
+      <span class="pointer-events-none absolute left-1 top-1 z-10 text-[9px] uppercase tracking-[0.2em] text-zinc-500">
+        {{ active.label }} · {{ active.unit }}  vs  speed · {{ unitLabel.speed }}
+      </span>
+      <span
+        v-if="hover"
+        class="pointer-events-none absolute right-1 top-1 z-10 flex flex-wrap justify-end gap-1 text-[10px] tabular-nums"
       >
-        <span class="pointer-events-none absolute left-1 top-1 z-10 text-[9px] uppercase tracking-[0.2em] text-zinc-500">
-          {{ panel.label }} · {{ panel.unit }}
-        </span>
-        <span
-          v-if="hover"
-          class="pointer-events-none absolute right-1 top-1 z-10 flex flex-wrap justify-end gap-1 text-[10px] tabular-nums"
+        <template
+          v-for="hg in hover.gears"
+          :key="hg.gear"
         >
-          <template
-            v-for="hg in hover.gears"
-            :key="hg.gear"
-          >
-            <span
-              v-if="hoverValue(panel, hg) !== null"
-              class="rounded px-1.5 py-0.5"
-              :style="{ background: hg.color + '20', color: hg.color }"
-            >{{ hoverValue(panel, hg) }}</span>
-          </template>
-        </span>
-        <div
-          ref="plotEls"
-          class="gearing-plot w-full"
-          :style="{ height: (i === panels.length - 1 ? panel.height + 22 : panel.height) + 'px' }"
-        />
-      </div>
+          <span
+            v-if="hg.value !== null"
+            class="rounded px-1.5 py-0.5"
+            :style="{ background: hg.color + '20', color: hg.color }"
+          >{{ active.fmt(hg.value) }}</span>
+        </template>
+      </span>
+      <div
+        ref="plotEl"
+        class="gearing-plot w-full"
+        :style="{ height: PLOT_H + 'px' }"
+      />
     </div>
 
     <p class="mt-3 text-[11px] leading-relaxed text-zinc-500">
-      All three panels share the speed axis — hover anywhere to read each gear's
-      force, wheel power and engine RPM at that speed. Where a force curve drops
-      below the next gear's, the gears trade places; a power dip between curves
-      is engine speed falling out of the band across that ratio step.
+      Measured per gear at full throttle. The top edge across all gears is what
+      you actually get at each speed; where a gear's curve drops below the next,
+      the gears trade places. Acceleration flat-tops where the tyres run out of
+      grip — that ceiling is the traction limit, no estimate needed.
     </p>
   </section>
 </template>
