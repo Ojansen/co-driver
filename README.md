@@ -2,9 +2,19 @@
 
 [![Source](https://img.shields.io/badge/source-github.com%2FOjansen%2Fco--driver-181717?logo=github)](https://github.com/Ojansen/co-driver) [![Docker Pulls](https://img.shields.io/docker/pulls/obedbj/co-driver)](https://hub.docker.com/r/obedbj/co-driver) [![License](https://img.shields.io/github/license/Ojansen/co-driver)](https://github.com/Ojansen/co-driver/blob/main/LICENSE)
 
-Your own telemetry workspace for **Forza Horizon 6**. Runs on your laptop or a mini PC, reads the data Forza already broadcasts, and turns it into a second-screen dashboard, a hotlap timer, a dyno and a tune workbench. No accounts, no cloud, no leaderboards reading your laps.
+Your own telemetry workspace for **Forza Horizon** and the **F1** games. Runs on your laptop or a mini PC, reads the UDP telemetry your game already broadcasts, and turns it into a second-screen dashboard, a hotlap timer, a dyno and a tune workbench. No accounts, no cloud, no leaderboards reading your laps.
 
 > Measurement, not prescription. The tool shows you what the car actually did — you decide what to change.
+
+## Supported games
+
+co-driver listens for every supported game **at once** — launch any of them and it streams, no setup beyond pointing the game at the server. Live telemetry works for all of them; the tuning stack (dyno, builds, tune workbench) is Forza-Horizon-specific. Pick your game in **Settings → Game** to set what the UI shows.
+
+| Game | Live telemetry | Tuning stack | UDP port |
+|---|---|---|---|
+| Forza Horizon 6 | ✅ | ✅ | `5300` |
+| Forza Horizon 5 | ✅ | — | `5300` |
+| F1 25 / F1 26 | ✅ | — | `20777` |
 
 ## What you get
 
@@ -14,23 +24,23 @@ Prop a phone or tablet next to the TV. Each corner of the car becomes its own in
 **A hotlap delta you'd recognise from real motorsport.**
 Live delta to your session best, per‑sector PBs in green/purple, predicted and theoretical lap, and a track map that shows you exactly where the time is going.
 
-**A dyno you actually understand.**
+**Laps you can compare.**
+Compare any two laps side by side — overlay routes, scrub through synchronised traces, read the apex‑speed table and the sector splits that explain the gap.
+
+**A dyno you actually understand.** *(Forza Horizon)*
 Plot your engine's power, torque and boost across the rev range. Pick units that match how you think — bar, psi or atm — and tune gear ratios against the powerband you actually have.
 
-**A tune workbench built around your data.**
-Springs, dampers, anti‑roll bars, tire pressures and brake bias each sit next to the telemetry that justifies the change. The auto‑baseline calculator gives you an FH6‑correct starting point, build‑aware so it adapts to your upgrades. Damper velocity histograms tell you whether your low‑speed and high‑speed bump/rebound are doing their job. Build and tune are kept as separate layers, so you never confuse "the car can't do this" with "the setup isn't there yet."
-
-**A garage that remembers, and laps you can compare.**
-Cars, builds, tunes and sessions stay organised across the workspace. Compare any two laps side by side — overlay routes, scrub through synchronised traces, read the apex‑speed table, the sector splits and the tune diff that explain the gap.
+**A tune workbench built around your data.** *(Forza Horizon)*
+Springs, dampers, anti‑roll bars, tire pressures and brake bias each sit next to the telemetry that justifies the change. The auto‑baseline calculator gives you an FH6‑correct starting point, build‑aware so it adapts to your upgrades. Damper velocity histograms tell you whether your low‑speed and high‑speed bump/rebound are doing their job. Build and tune are kept as separate layers, so you never confuse "the car can't do this" with "the setup isn't there yet." Cars, builds, tunes and sessions stay organised in a garage that remembers.
 
 **Built‑in manuals.**
 Every heavy view links to a short page that explains what to read and what to look for, so the tool teaches itself.
 
 ## Install
 
-### Docker Hub (recommended)
+### Docker (recommended)
 
-Pull the prebuilt image. No clone, no toolchain.
+Pull the prebuilt image — no clone, no toolchain.
 
 ```bash
 docker run -d --name co-driver \
@@ -42,34 +52,21 @@ docker run -d --name co-driver \
   obedbj/co-driver:latest
 ```
 
-Open <http://localhost:3000>. You'll see "WAITING FOR TELEMETRY" until a game starts sending — the container listens for Forza Horizon on `5300` and F1 on `20777` (drop a port mapping if you only play one). Migrations run automatically on first start; session/lap data lives in the named volume (`co-driver`) and survives container rebuilds.
+Open <http://localhost:3000>. You'll see "WAITING FOR TELEMETRY" until a game starts sending — the container listens for Forza Horizon on `5300` and F1 on `20777` (drop a port mapping if you only play one). Migrations run automatically on first start; session/lap data lives in the named volume (`co-driver`) and survives container rebuilds. Multi‑arch — `linux/amd64` and `linux/arm64`.
 
-Multi-arch — `linux/amd64` and `linux/arm64` both supported. Docker Hub serves the right manifest automatically.
-
-### Build it yourself
+### Docker Compose
 
 ```bash
 git clone https://github.com/Ojansen/co-driver.git
 cd co-driver
-docker compose up -d --build
+docker compose up -d
 ```
 
-The Dockerfile is multi-stage: it installs and builds inside the container, so no host toolchain beyond Docker is required.
-
-### Dev mode (contributors)
-
-```bash
-git clone https://github.com/Ojansen/co-driver.git
-cd co-driver
-bun install
-bun run dev          # HMR
-# or production-style on bare metal
-bun run build:node && node .output/server/index.mjs
-```
+Same ports and volume, declared in `docker-compose.yml`.
 
 ## Connect your game
 
-co-driver listens for **every supported game at once** — it binds a UDP port per game, so whichever one you launch just shows up; there's no server-side "active game" to set. Pick your game in the app (**Settings → Game**) to control what the UI shows and gates (tuning is Forza-Horizon-specific) — that's a frontend choice and doesn't affect what's captured. So: expose the game's port, point its telemetry output at the server, and select it in Settings.
+co-driver listens for every supported game at once — there's no server-side "active game" to set. Selecting a game in **Settings → Game** only controls what the UI shows and gates (tuning is Forza-Horizon-specific); it doesn't affect what's captured. So connecting is just: point the game's telemetry output at the server, and pick it in Settings.
 
 | Game | Enable in-game | Default port |
 |---|---|---|
@@ -135,7 +132,9 @@ Two ways to avoid it:
 
   The rule only matters during the no-listener window; it has no effect once co-driver is running.
 
-## Environment variables
+## Configuration
+
+Set via environment variables (Docker `-e`, or the compose file):
 
 | Var | Default | Purpose |
 |---|---|---|
@@ -143,41 +142,6 @@ Two ways to avoid it:
 | `FORZA_BIND` | `0.0.0.0` | Bind address (`127.0.0.1` for same-machine only) |
 | `NITRO_PORT` | `3000` | Web UI port |
 | `NITRO_HOST` | `0.0.0.0` | Web UI bind |
-
-A starter `.env.example` is included; copy to `.env` to override defaults outside Docker.
-
-## Stack
-
-- Nuxt 4 + Nitro (server-side UDP listener, WebSocket fan-out to the browser)
-- Tailwind 4 + Nuxt UI 4
-- uPlot for the high-rate trace strip
-- Drizzle + LibSQL for session/lap storage
-- Bun for the dev/build toolchain, Node for the runtime container
-
-## Development
-
-| Command | Purpose |
-|---|---|
-| `bun dev` | Dev server with HMR + UDP listener |
-| `bun run build` | Production build (default Nitro preset) |
-| `bun run build:node` | Build for the Node runtime preset (what the Docker image consumes) |
-| `bun run typecheck` | Type-check the project |
-| `bun run lint` | Lint |
-| `bun test:unit` | Decoder unit tests |
-| `bun test:nuxt` | Component tests |
-| `bun test:e2e` | Playwright E2E |
-
-Package manager is **bun**. Do not use npm, yarn, or pnpm.
-
-### Publishing your own image
-
-Forks can push to their own Docker Hub repo with one command:
-
-```bash
-make publish DOCKER_IMAGE=you/co-driver
-```
-
-The Makefile handles the buildx builder + QEMU emulator setup on first run, then does a multi-arch (`linux/amd64`, `linux/arm64`) build and push. `DOCKER_TAG` defaults to `latest`.
 
 ## Status
 
