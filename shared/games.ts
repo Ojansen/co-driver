@@ -53,7 +53,9 @@ export const GAMES: readonly GameDef[] = [
   {
     id: 'fm',
     label: 'Forza Motorsport',
-    telemetry: false,
+    // Same "Data Out" feed as Horizon (shared decoder + port). Telemetry only:
+    // the tune stack is FH6-calibrated and FM's setup conventions differ.
+    telemetry: true,
     capabilities: { tuning: false }
   },
   {

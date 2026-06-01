@@ -1,29 +1,34 @@
 /**
- * Forza Horizon "Data Out" Car Dash decoder — shared by every Horizon title.
+ * Forza "Data Out" Car Dash decoder — shared by every Forza title.
  *
- * FH4, FH5 and FH6 all emit the same 324-byte, little-endian Horizon variant:
- * a Sled portion (offsets 0..231), a 12-byte gap, then the Dash extension
- * (offsets 244..323). Because the wire format is identical across these games,
- * a single decoder backs all of their adapters — each adapter is just an id +
- * transport wrapper around this function.
+ * All Forza games emit the same little-endian Sled portion (offsets 0..231),
+ * then a Dash extension. The two families differ only in where the Dash starts:
  *
- * Motorsport's Dash is contiguous (no 12-byte gap); an FM adapter branches on
- * buf.length and offsets the Dash reads by -12 rather than reusing this.
+ *   - Horizon (FH4/FH5/FH6): a 12-byte gap after the Sled, so the Dash sits at
+ *     offset 244 — a 324-byte packet.
+ *   - Motorsport (FM7, FM 2023): no gap, Dash sits at offset 232 (12 bytes
+ *     earlier) — a 311-byte packet. FM 2023 appends per-tire wear + a track
+ *     ordinal (→ 331 bytes); those trailing fields aren't mapped yet, so the
+ *     first 311 bytes are decoded identically to FM7.
  *
- * Field offsets and types are documented in DESIGN.md §2.
+ * So one decoder backs all of them, parameterised by the Dash base offset. The
+ * Sled offsets are fixed; the Dash reads are `dashBase + delta`. Field meanings
+ * are documented in DESIGN.md §2.
  */
 
 import type { Quad, Telemetry } from '../utils/decode'
 
 export const HORIZON_CAR_DASH_BYTES = 324
+/** Minimum length of a Motorsport Dash packet (FM7 = 311; FM 2023 = 331). */
+export const MOTORSPORT_CAR_DASH_BYTES = 311
+
+const HORIZON_DASH_BASE = 244
+const MOTORSPORT_DASH_BASE = 232
 
 const fToC = (f: number): number => (f - 32) * 5 / 9
 const msToKmh = (ms: number): number => ms * 3.6
 
-export function decodeHorizonCarDash(buf: Buffer): Telemetry | null {
-  // Accept short Sled-only packets gracefully (return null so we can log).
-  if (buf.length < HORIZON_CAR_DASH_BYTES) return null
-
+function decodeForzaCarDash(buf: Buffer, dashBase: number): Telemetry {
   const f32 = (o: number): number => buf.readFloatLE(o)
   const u8 = (o: number): number => buf.readUInt8(o)
   const s8 = (o: number): number => buf.readInt8(o)
@@ -38,7 +43,11 @@ export function decodeHorizonCarDash(buf: Buffer): Telemetry | null {
     rr: f32(o + 12)
   })
 
+  // Dash reads are relative to dashBase (Horizon 244, Motorsport 232).
+  const d = dashBase
+
   return {
+    // --- Sled (fixed offsets 0..231, identical across titles) ---
     isRaceOn: s32(0) === 1,
     timestampMs: u32(4),
 
@@ -76,42 +85,65 @@ export function decodeHorizonCarDash(buf: Buffer): Telemetry | null {
       cylinders: s32(228)
     },
 
-    // 12-byte Horizon gap at 232..243
-
-    position: { x: f32(244), y: f32(248), z: f32(252) },
-    speedKmh: msToKmh(f32(256)),
-    power: f32(260),
-    torque: f32(264),
+    // --- Dash (relative to dashBase) ---
+    position: { x: f32(d), y: f32(d + 4), z: f32(d + 8) },
+    speedKmh: msToKmh(f32(d + 12)),
+    power: f32(d + 16),
+    torque: f32(d + 20),
 
     tireTempC: {
-      fl: fToC(f32(268)),
-      fr: fToC(f32(272)),
-      rl: fToC(f32(276)),
-      rr: fToC(f32(280))
+      fl: fToC(f32(d + 24)),
+      fr: fToC(f32(d + 28)),
+      rl: fToC(f32(d + 32)),
+      rr: fToC(f32(d + 36))
     },
 
-    boost: f32(284),
-    fuel: f32(288),
+    boost: f32(d + 40),
+    fuel: f32(d + 44),
 
     lap: {
-      distance: f32(292),
-      best: f32(296),
-      last: f32(300),
-      current: f32(304),
-      raceTime: f32(308),
-      number: u16(312),
-      racePosition: u8(314)
+      distance: f32(d + 48),
+      best: f32(d + 52),
+      last: f32(d + 56),
+      current: f32(d + 60),
+      raceTime: f32(d + 64),
+      number: u16(d + 68),
+      racePosition: u8(d + 70)
     },
 
-    throttle: u8(315) / 255,
-    brake: u8(316) / 255,
-    clutch: u8(317) / 255,
-    handBrake: u8(318) / 255,
-    gear: u8(319),
-    steer: s8(320) / 127,
-    drivingLine: s8(321),
-    aiBrakeDifference: s8(322),
+    throttle: u8(d + 71) / 255,
+    brake: u8(d + 72) / 255,
+    clutch: u8(d + 73) / 255,
+    handBrake: u8(d + 74) / 255,
+    gear: u8(d + 75),
+    steer: s8(d + 76) / 127,
+    drivingLine: s8(d + 77),
+    aiBrakeDifference: s8(d + 78),
 
     rawLength: buf.length
   }
+}
+
+/** Horizon (FH4/FH5/FH6): 324-byte Car Dash, Dash at offset 244. */
+export function decodeHorizonCarDash(buf: Buffer): Telemetry | null {
+  if (buf.length < HORIZON_CAR_DASH_BYTES) return null
+  return decodeForzaCarDash(buf, HORIZON_DASH_BASE)
+}
+
+/** Motorsport (FM7 / FM 2023): Dash at offset 232; ≥311 bytes. */
+export function decodeMotorsportCarDash(buf: Buffer): Telemetry | null {
+  if (buf.length < MOTORSPORT_CAR_DASH_BYTES) return null
+  return decodeForzaCarDash(buf, MOTORSPORT_DASH_BASE)
+}
+
+/**
+ * Forza "Data Out" dispatcher — routes by packet length, since FM and Horizon
+ * share the same in-game feature (and, in this app, the same UDP port). Horizon
+ * is exactly 324 bytes; Motorsport is 311 (FM7) or 331 (FM 2023), so anything
+ * else ≥311 is decoded as Motorsport. Used by every Forza adapter.
+ */
+export function decodeForzaDataOut(buf: Buffer): Telemetry | null {
+  if (buf.length === HORIZON_CAR_DASH_BYTES) return decodeForzaCarDash(buf, HORIZON_DASH_BASE)
+  if (buf.length >= MOTORSPORT_CAR_DASH_BYTES) return decodeForzaCarDash(buf, MOTORSPORT_DASH_BASE)
+  return null
 }
