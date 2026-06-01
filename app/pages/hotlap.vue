@@ -141,22 +141,10 @@ function formatRaceTime(s: number): string {
     </UDropdownMenu>
 
     <!-- Waiting state — never received a frame yet. -->
-    <div
+    <TelemetryWaiting
       v-if="!hasReceivedFrame"
-      class="flex flex-col items-center justify-center px-6 py-16 text-center font-mono sm:py-32"
-    >
-      <div class="text-[10px] uppercase tracking-[0.3em] text-zinc-500">
-        awaiting
-      </div>
-      <div class="mt-3 text-2xl text-zinc-100">
-        WAITING FOR TELEMETRY
-      </div>
-      <div class="mt-6 max-w-md text-xs text-zinc-400">
-        Start a race in Forza Horizon with Data Out enabled
-        (Settings → HUD and Gameplay → Data Out) and point it at this server's
-        LAN IP, port 5300, format <span class="text-zinc-200">Car Dash</span>.
-      </div>
-    </div>
+      variant="full"
+    />
 
     <div
       v-else

@@ -71,23 +71,14 @@ function resetCurve() {
       "stay-in-here" zone for gear spacing.
     </p>
 
-    <UEmpty
+    <TelemetryWaiting
       v-if="!hasReceivedFrame"
-      icon="i-lucide-radio"
-      title="Waiting for telemetry"
-      class="mb-6 card-dashed font-mono"
+      :connected="connected"
+      class="mb-6"
     >
-      <template #description>
-        <div class="text-xs">
-          Enable Data Out in Forza and start a race / free-roam.
-          <span
-            class="ml-2 inline-block h-2 w-2 rounded-full align-middle"
-            :class="connected ? 'bg-green-400' : 'bg-zinc-600'"
-          />
-          {{ connected ? 'WS linked' : 'WS offline' }}
-        </div>
-      </template>
-    </UEmpty>
+      Enable Data Out in Forza and start a race or free-roam, then pick 3rd or
+      4th gear and hold full throttle to redline — the curve fills as you pull.
+    </TelemetryWaiting>
 
     <DynoCurve
       v-else

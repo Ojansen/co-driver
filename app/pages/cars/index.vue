@@ -12,7 +12,7 @@ interface CarRow {
 
 const { data: cars, refresh: refreshCars } = await useFetch<CarRow[]>('/api/cars', { default: () => [] })
 
-const { lastLiveCar } = useTelemetry()
+const { lastLiveCar, hasReceivedFrame, connected } = useTelemetry()
 
 const CLASS_LETTERS = ['D', 'C', 'B', 'A', 'S1', 'S2', 'X', 'R']
 function carClassLetter(c: number): string {
@@ -189,13 +189,22 @@ async function confirmDelete() {
         />
       </div>
     </div>
-    <UEmpty
-      v-else
-      icon="i-lucide-car"
+    <TelemetryWaiting
+      v-else-if="!hasReceivedFrame"
+      :connected="connected"
       title="No cars yet"
-      description="Cars appear here once you record a session in Forza with telemetry flowing."
-      class="card-dashed font-mono"
-    />
+    >
+      Cars appear here once telemetry is flowing — start a race in Forza with
+      Data Out enabled and your current car shows up to add to the garage.
+    </TelemetryWaiting>
+    <TelemetryWaiting
+      v-else
+      title="Garage is empty"
+    >
+      You're connected and driving. Hit
+      <span class="text-zinc-200">Add current car</span> above to start
+      tracking it, or record a session and it'll land here automatically.
+    </TelemetryWaiting>
 
     <ConfirmModal
       v-model:open="deleteOpen"
