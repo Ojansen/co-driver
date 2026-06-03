@@ -54,7 +54,7 @@ const grouped = computed(() => {
 const EXPORT_FORMATS = [
   { fmt: 'csv', label: 'CSV', hint: 'generic' },
   { fmt: 'json', label: 'JSON', hint: 'raw' },
-  { fmt: 'motec', label: 'MoTeC', hint: 'i2 CSV' },
+  { fmt: 'ld', label: 'MoTeC', hint: 'i2 binary' },
   { fmt: 'bundle', label: 'Bundle', hint: 'co-driver' }
 ] as const
 

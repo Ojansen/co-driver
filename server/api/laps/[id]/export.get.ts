@@ -1,15 +1,16 @@
 import { eq } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
 import { decodeFrames } from '~~/server/utils/frames-codec'
-import { toBundle, toCsv, toMotecCsv, type LapMeta } from '~~/server/utils/lap-export'
+import { toBundle, toCsv, type LapMeta } from '~~/server/utils/lap-export'
+import { toLd } from '~~/server/utils/ld-export'
 
-const FORMATS = ['csv', 'json', 'motec', 'bundle'] as const
+const FORMATS = ['csv', 'json', 'ld', 'bundle'] as const
 type Format = typeof FORMATS[number]
 
 const EXT: Record<Format, string> = {
   csv: 'csv',
   json: 'json',
-  motec: 'motec.csv',
+  ld: 'ld',
   bundle: 'codriver.json'
 }
 
@@ -94,6 +95,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const t0 = frames[0]?.timestampMs ?? 0
+
+  if (fmt === 'ld') {
+    setHeader(event, 'Content-Type', 'application/octet-stream')
+    return toLd(frames, t0, meta)
+  }
+
   setHeader(event, 'Content-Type', 'text/csv; charset=utf-8')
-  return fmt === 'motec' ? toMotecCsv(frames, t0, meta) : toCsv(frames, t0)
+  return toCsv(frames, t0)
 })

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { LAP_CHANNELS } from '../../server/utils/lap-channels'
-import { BUNDLE_FORMAT, BUNDLE_VERSION, toBundle, toCsv, toMotecCsv, type LapMeta } from '../../server/utils/lap-export'
+import { BUNDLE_FORMAT, BUNDLE_VERSION, toBundle, toCsv, type LapMeta } from '../../server/utils/lap-export'
+import { toLd } from '../../server/utils/ld-export'
 import { encodeFrames, decodeFrames } from '../../server/utils/frames-codec'
 import type { Telemetry, Quad } from '../../server/utils/decode'
 
@@ -79,21 +80,52 @@ describe('toCsv', () => {
   })
 })
 
-describe('toMotecCsv', () => {
-  const out = toMotecCsv(frames, t0, meta)
+describe('toLd', () => {
+  const HEAD_SIZE = 1762
+  const EVENT_SIZE = 1154
+  const CHAN_SIZE = 124
+  const META_PTR = HEAD_SIZE + EVENT_SIZE
 
-  it('opens with the MoTeC format marker and metadata block', () => {
-    expect(out).toContain('"Format","MoTeC CSV File"')
-    expect(out).toContain('"Venue","Goliath"')
-    expect(out).toContain('"Sample Rate","60"')
+  const buf = toLd(frames, t0, meta)
+
+  // Time is implicit; boost is all-null on these frames and gets dropped.
+  const expectedChannels = LAP_CHANNELS
+    .filter(c => c.name !== 'Time')
+    .filter(c => frames.some(f => c.get(f, t0) != null))
+
+  it('starts with the 0x40 ld marker and points at event/meta blocks', () => {
+    expect(buf.readUInt32LE(0)).toBe(0x40)
+    expect(buf.readUInt32LE(8)).toBe(META_PTR) // chann_meta_ptr
+    expect(buf.readUInt32LE(36)).toBe(HEAD_SIZE) // event_ptr right after head
+    expect(buf.readUInt32LE(86)).toBe(expectedChannels.length) // num_channels
   })
 
-  it('quotes every field on every non-empty line', () => {
-    const quotedLine = /^"([^"]|"")*"(,"([^"]|"")*")*$/
-    for (const line of out.split('\r\n')) {
-      if (line === '') continue
-      expect(line).toMatch(quotedLine)
+  it('drops the implicit Time channel and all-null channels (boost)', () => {
+    const names: string[] = []
+    for (let i = 0; i < expectedChannels.length; i++) {
+      names.push(buf.toString('ascii', META_PTR + i * CHAN_SIZE + 32, META_PTR + i * CHAN_SIZE + 64).replace(/\0.*$/, ''))
     }
+    expect(names).not.toContain('Time')
+    expect(names).not.toContain('Boost')
+    expect(names).toContain('Speed')
+  })
+
+  it('links channel metas as a doubly-linked list', () => {
+    const last = expectedChannels.length - 1
+    expect(buf.readUInt32LE(META_PTR + 0)).toBe(0) // first prev = 0
+    expect(buf.readUInt32LE(META_PTR + 4)).toBe(META_PTR + CHAN_SIZE) // first next
+    expect(buf.readUInt32LE(META_PTR + last * CHAN_SIZE + 4)).toBe(0) // last next = 0
+  })
+
+  it('writes float32 data contiguously per channel, stored == physical', () => {
+    const n = frames.length
+    const dataPtr = META_PTR + expectedChannels.length * CHAN_SIZE
+    expect(buf.length).toBe(dataPtr + expectedChannels.length * n * 4)
+
+    // Speed channel: every sample is the physical value (no scaling applied).
+    const speedIdx = expectedChannels.findIndex(c => c.name === 'Speed')
+    const speed0 = buf.readFloatLE(dataPtr + speedIdx * n * 4)
+    expect(speed0).toBeCloseTo(140.25, 2)
   })
 })
 
