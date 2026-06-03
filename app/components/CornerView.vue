@@ -114,21 +114,10 @@ watch(() => props.frame, (f) => {
       :boost="frame?.boost ?? 0"
       :has-boost="hasBoost"
     />
-    <!-- Center column: inputs + attitude/power readouts on top, G-G dot below.
-         Both visualize driver inputs and the resulting body movement / forces. -->
+    <!-- Center column: steering wheel on top, G-G dot below — both visualize
+         driver input and the resulting body forces. -->
     <div class="flex min-h-0 flex-col gap-4 md:col-start-2 md:row-span-2 md:row-start-2">
-      <div class="panel flex-1 p-3 backdrop-blur sm:p-4">
-        <InputsReadouts
-          :throttle="frame?.throttle ?? 0"
-          :brake="frame?.brake ?? 0"
-          :steer="frame?.steer ?? 0"
-          :roll="frame?.roll ?? 0"
-          :pitch="frame?.pitch ?? 0"
-          :yaw-rate="frame?.angularVelocity.y ?? 0"
-          :power="frame?.power ?? 0"
-        />
-      </div>
-      <div class="panel flex items-center justify-center p-3 backdrop-blur sm:p-4">
+      <div class="panel flex flex-1 items-center justify-center p-3 backdrop-blur sm:p-4">
         <ClusterSteeringWheel
           class="w-full max-w-[220px]"
           :steer="frame?.steer ?? 0"

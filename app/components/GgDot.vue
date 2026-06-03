@@ -6,9 +6,12 @@ const props = defineProps<{
   accelLat: number
 }>()
 
-// 2g range on each axis. Matches Forza's in-game G meter: braking plots UP
-// (driver felt forward), accelerating plots DOWN (driver pushed back into seat).
-const G_RANGE_MPS2 = 20
+// 3g range on each axis (rim = 3g). Sized from recorded sessions: real
+// cornering/braking sits under ~2.5g (p99), so 3g keeps the p99 envelope inside
+// the disc while only genuine impacts pin to the rim. Sign matches Forza's
+// in-game G meter: braking plots UP (driver felt forward), accelerating plots
+// DOWN (driver pushed back into seat).
+const G_RANGE_MPS2 = 3 * 9.81
 
 // Trail rendered as a fading scatter — pros read the *envelope* (density
 // across the disc), not the path. Decimate to ~10 Hz so 200 dots cover ~20 s
@@ -183,11 +186,20 @@ onBeforeUnmount(() => {
         stroke="#52525b"
         stroke-width="0.4"
       />
-      <!-- 1g ring (inner) and 2g ring (outer) -->
+      <!-- g rings at 1g (r16) / 2g (r32) dashed, 3g at the rim (r48) -->
       <circle
         cx="50"
         cy="50"
-        r="24"
+        r="16"
+        fill="none"
+        stroke="#52525b"
+        stroke-width="0.4"
+        stroke-dasharray="2,2"
+      />
+      <circle
+        cx="50"
+        cy="50"
+        r="32"
         fill="none"
         stroke="#52525b"
         stroke-width="0.4"
@@ -202,40 +214,64 @@ onBeforeUnmount(() => {
         stroke-width="0.4"
         stroke-dasharray="1,2"
       />
-      <!-- axis ticks at 1g and 2g -->
+      <!-- axis ticks at 1g (r16) and 2g (r32) -->
       <g
         stroke="#52525b"
         stroke-width="0.5"
       >
         <line
-          x1="26"
+          x1="34"
           y1="48"
-          x2="26"
+          x2="34"
           y2="52"
         />
         <line
-          x1="74"
+          x1="66"
           y1="48"
-          x2="74"
+          x2="66"
           y2="52"
         />
         <line
           x1="48"
-          y1="26"
+          y1="34"
           x2="52"
-          y2="26"
+          y2="34"
         />
         <line
           x1="48"
-          y1="74"
+          y1="66"
           x2="52"
-          y2="74"
+          y2="66"
+        />
+        <line
+          x1="18"
+          y1="48"
+          x2="18"
+          y2="52"
+        />
+        <line
+          x1="82"
+          y1="48"
+          x2="82"
+          y2="52"
+        />
+        <line
+          x1="48"
+          y1="18"
+          x2="52"
+          y2="18"
+        />
+        <line
+          x1="48"
+          y1="82"
+          x2="52"
+          y2="82"
         />
       </g>
       <!-- ring labels -->
       <text
         x="50"
-        y="28.5"
+        y="36.5"
         text-anchor="middle"
         fill="#52525b"
         font-size="3.2"
@@ -243,12 +279,20 @@ onBeforeUnmount(() => {
       >1g</text>
       <text
         x="50"
+        y="20.5"
+        text-anchor="middle"
+        fill="#52525b"
+        font-size="3.2"
+        font-family="monospace"
+      >2g</text>
+      <text
+        x="50"
         y="4.5"
         text-anchor="middle"
         fill="#3f3f46"
         font-size="3.2"
         font-family="monospace"
-      >2g</text>
+      >3g</text>
     </svg>
 
     <!-- Dynamic layer: trail envelope + current point. Overlays the static
