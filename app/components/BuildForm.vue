@@ -133,9 +133,13 @@ const copyFromModel = computed({
   set: (v: number | undefined) => { copyFromId.value = v ?? null }
 })
 
+// USelect (@nuxt/ui v4) reserves the empty string for clearing the selection,
+// so the "clear" entry uses a sentinel value instead of ''.
+const NONE_VALUE = '__none__'
+
 /** Options for an enum field, with a leading "—" entry to clear the value. */
 function enumItems(field: SetupField) {
-  return [{ label: '—', value: '' }, ...(field.options ?? []).map(o => ({ label: o, value: o }))]
+  return [{ label: '—', value: NONE_VALUE }, ...(field.options ?? []).map(o => ({ label: o, value: o }))]
 }
 
 async function copyFromPrevious() {
@@ -277,10 +281,10 @@ function autoHintFor(field: SetupField): string | null {
 
         <USelect
           v-if="field.kind === 'enum'"
-          :model-value="(values[field.id] ?? '') as string"
+          :model-value="(values[field.id] ?? NONE_VALUE) as string"
           :items="enumItems(field)"
           :disabled="saving"
-          @update:model-value="(v) => values[field.id] = v === '' ? null : v"
+          @update:model-value="(v) => values[field.id] = v === NONE_VALUE ? null : v"
         />
 
         <UInput
