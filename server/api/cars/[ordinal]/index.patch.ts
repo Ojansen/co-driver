@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
 
 interface PatchBody {
@@ -30,7 +30,7 @@ export default defineEventHandler(async (event) => {
   const updated = await db
     .update(schema.cars)
     .set({ displayName })
-    .where(eq(schema.cars.ordinal, ordinal))
+    .where(and(eq(schema.cars.gameId, 'fh6'), eq(schema.cars.ordinal, ordinal)))
     .returning()
 
   if (updated.length === 0) {

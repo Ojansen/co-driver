@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { EVENT_TYPE_LABELS, isEventType, type EventType } from '~/utils/event-types'
+import type { EventType } from '~/utils/event-types'
 import { formatLap, formatDelta } from '~/utils/format'
 import { pointsFromFrames } from '~/utils/track-map'
 import { computeSectorTimes, minSpeedPerSector } from '~/utils/sectors'
@@ -10,7 +10,7 @@ import { binFrames } from '~/utils/dyno'
 import { diffSetup, SOURCE_LABEL, type SetupDiffRow } from '~/utils/setup-diff'
 import type { BuildSettings } from '~/utils/build-fields'
 import type { TuneSettings } from '~/utils/tune-fields'
-import type { Telemetry } from '../../../../../server/utils/decode'
+import type { Telemetry } from '../../../../server/utils/decode'
 
 // Selection lives entirely in the query string, so any change re-runs setup
 // with a fresh fetch. Capturing query into plain consts (rather than reactive
@@ -30,13 +30,11 @@ function deltaSpeedDisplay(deltaKmh: number): string {
 }
 
 const route = useRoute()
-const typeParam = String(route.params.type ?? '')
 const eventIdParam = Number(route.params.id)
 
-if (!isEventType(typeParam) || !Number.isInteger(eventIdParam) || eventIdParam <= 0) {
+if (!Number.isInteger(eventIdParam) || eventIdParam <= 0) {
   throw createError({ statusCode: 404, statusMessage: 'invalid compare params' })
 }
-const eventTypeKey = typeParam as EventType
 const eventId = eventIdParam
 
 // --- Selection from query ------------------------------------------------
@@ -91,7 +89,7 @@ interface LapResponse {
 }
 
 interface EventResponse {
-  event: { id: number, name: string, type: EventType }
+  event: { id: number, name: string, type: EventType | null }
 }
 
 interface EventLap {
@@ -389,14 +387,7 @@ function diffDelta(row: SetupDiffRow): string | null {
         </NuxtLink>
         <span class="text-zinc-700">/</span>
         <NuxtLink
-          :to="`/events/${eventTypeKey}`"
-          class="hover:text-zinc-300"
-        >
-          {{ EVENT_TYPE_LABELS[eventTypeKey] }}
-        </NuxtLink>
-        <span class="text-zinc-700">/</span>
-        <NuxtLink
-          :to="`/events/${eventTypeKey}/${eventId}`"
+          :to="`/events/${eventId}`"
           class="hover:text-zinc-300"
         >
           {{ eventData?.event.name }}
@@ -452,7 +443,7 @@ function diffDelta(row: SetupDiffRow): string | null {
             :style="{ background: l.color }"
           />
           <NuxtLink
-            :to="`/events/${eventTypeKey}/${eventId}/${l.resp.sessionId}`"
+            :to="`/events/${eventId}/${l.resp.sessionId}`"
             class="text-zinc-200 hover:text-green-300"
             :title="`Session #${l.resp.sessionId}`"
           >

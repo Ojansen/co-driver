@@ -45,16 +45,19 @@ export const NAV_ITEMS: NavItem[] = [
     ]
   },
   { label: 'Garage', to: '/cars', requires: 'tuning', icon: 'i-lucide-car' },
-  { label: 'Events', to: '/events', requires: 'tuning', icon: 'i-lucide-flag' },
+  // Events = the recordings browser (sessions → laps → replay/compare). Universal:
+  // any game with a decoder can record and review.
+  { label: 'Events', to: '/events', icon: 'i-lucide-flag' },
   {
     label: 'Reference',
     icon: 'i-lucide-book-open',
-    to: '/tune',
-    requires: 'tuning',
+    to: '/manual',
+    // Parent is universal so the Manual child always shows; Tune/Upgrade stay
+    // FH6-gated and drop out for other games (navForGame filters children).
     children: [
       { label: 'Tune', to: '/tune', requires: 'tuning', icon: 'i-lucide-sliders-horizontal' },
       { label: 'Upgrade', to: '/upgrade', requires: 'tuning', icon: 'i-lucide-arrow-up-circle' },
-      { label: 'Manual', to: '/manual', requires: 'tuning', icon: 'i-lucide-book-open-text' }
+      { label: 'Manual', to: '/manual', icon: 'i-lucide-book-open-text' }
     ]
   },
   {
@@ -63,7 +66,7 @@ export const NAV_ITEMS: NavItem[] = [
     to: '/settings',
     children: [
       { label: 'Settings', to: '/settings', exact: true, icon: 'i-lucide-settings' },
-      { label: 'Transfer', to: '/transfer', requires: 'tuning', icon: 'i-lucide-arrow-left-right' }
+      { label: 'Transfer', to: '/transfer', icon: 'i-lucide-arrow-left-right' }
     ]
   }
 ]

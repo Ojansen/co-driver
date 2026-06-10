@@ -1,3 +1,4 @@
+import { DEFAULT_GAME_ID, isGameId, type GameId } from '#shared/games'
 import { forzaBus, getForzaStatus, type ForzaStatus, type MeasurementEvent, type RecordingState, type TunePrompt } from '../utils/forza-bus'
 import { recorder } from '../utils/recorder'
 // Side-effect imports: instantiating the singletons subscribes them to the
@@ -11,6 +12,9 @@ import type { Telemetry } from '../utils/decode'
 interface StartMessage {
   type: 'start'
   eventId: number
+  // The active game the client is recording. Older clients may omit it; we
+  // default to FH6 (the only game before multi-game support).
+  gameId?: GameId
   tuneLabel?: string | null
 }
 
@@ -32,7 +36,11 @@ function parseInbound(raw: unknown): InboundMessage | null {
   try {
     const parsed = JSON.parse(text) as Partial<InboundMessage>
     if (parsed?.type === 'start' && typeof (parsed as StartMessage).eventId === 'number') {
-      return parsed as StartMessage
+      const start = parsed as StartMessage
+      // Drop an invalid gameId rather than reject the whole command — start()
+      // defaults it below, keeping older clients (no gameId) working.
+      if (start.gameId !== undefined && !isGameId(start.gameId)) start.gameId = undefined
+      return start
     }
     if (parsed?.type === 'stop') return parsed as StopMessage
     return null
@@ -90,7 +98,7 @@ export default defineWebSocketHandler({
 
     try {
       if (msg.type === 'start') {
-        await recorder.start(msg.eventId, msg.tuneLabel ?? null)
+        await recorder.start(msg.gameId ?? DEFAULT_GAME_ID, msg.eventId, msg.tuneLabel ?? null)
       } else if (msg.type === 'stop') {
         await recorder.stop()
       }

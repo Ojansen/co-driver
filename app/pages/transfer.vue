@@ -16,7 +16,7 @@ interface SessionRow {
   carDisplayName: string | null
   eventId: number
   eventName: string
-  eventType: EventType
+  eventType: EventType | null
   tuneLabel: string | null
   piAtStart: number
   startedAt: string | number
@@ -27,11 +27,16 @@ interface ImportResult {
   lapId: number
   sessionId: number
   eventId: number
-  eventType: EventType
+  eventType: EventType | null
   alreadyPresent: boolean
 }
 
-const { data: sessions, refresh } = await useFetch<SessionRow[]>('/api/sessions', { default: () => [] })
+// Scope to the active game (workspace): only that sim's recordings show here.
+const { gameId } = useGame()
+const { data: sessions, refresh } = await useFetch<SessionRow[]>('/api/sessions', {
+  query: { gameId },
+  default: () => []
+})
 
 const grouped = computed(() => {
   const map = new Map<number, { carId: number, label: string, klass: string, sessions: SessionRow[] }>()
@@ -141,7 +146,7 @@ async function onFile(e: Event) {
       <span v-if="imported.alreadyPresent">Lap already present — nothing imported. </span>
       <span v-else>Lap imported. </span>
       <NuxtLink
-        :to="`/events/${imported.eventType}/${imported.eventId}/${imported.sessionId}`"
+        :to="`/events/${imported.eventId}/${imported.sessionId}`"
         class="underline hover:text-green-100"
       >
         Open session →
@@ -193,7 +198,7 @@ async function onFile(e: Event) {
               class="size-4 shrink-0 text-zinc-500"
             />
             <span class="min-w-0 flex-1 truncate font-mono text-sm text-zinc-200">
-              {{ EVENT_TYPE_LABELS[s.eventType] }} · {{ s.eventName }}
+              <template v-if="s.eventType">{{ EVENT_TYPE_LABELS[s.eventType] }} · </template>{{ s.eventName }}
               <span
                 v-if="s.tuneLabel"
                 class="text-zinc-500"

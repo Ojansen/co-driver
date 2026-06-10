@@ -58,7 +58,8 @@ export default defineEventHandler(async (event) => {
     const car = (await db
       .select({ id: schema.cars.id, ordinal: schema.cars.ordinal, displayName: schema.cars.displayName, class: schema.cars.class })
       .from(schema.cars)
-      .where(eq(schema.cars.ordinal, carOrdinalParam))
+      // Tune reference is FH6-only; ordinal is unique within a game.
+      .where(and(eq(schema.cars.gameId, 'fh6'), eq(schema.cars.ordinal, carOrdinalParam)))
       .limit(1))[0]
     if (!car) return emptyBundle(null, null, null, null, null, lapLimit)
     carId = car.id

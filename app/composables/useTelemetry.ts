@@ -390,6 +390,11 @@ export function useTelemetry() {
 }
 
 export function useRecording() {
+  // The session is tagged with whichever game is active (see shared/games.ts).
+  // Captured here at setup so the start closure reads the current value at click
+  // time without each call site having to pass it.
+  const { gameId } = useGame()
+
   if (import.meta.client) {
     _state.refCount += 1
     connect()
@@ -409,7 +414,7 @@ export function useRecording() {
     connected: _state.connected,
     startRecording: (eventId: number, tuneLabel?: string | null): boolean => {
       _state.lastError.value = null
-      return sendCommand({ type: 'start', eventId, tuneLabel: tuneLabel ?? null })
+      return sendCommand({ type: 'start', eventId, gameId: gameId.value, tuneLabel: tuneLabel ?? null })
     },
     stopRecording: (): boolean => {
       _state.lastError.value = null

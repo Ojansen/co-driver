@@ -68,7 +68,7 @@ const existingTuneNames = computed(() => tunes.value?.map(t => t.name) ?? [])
 interface BuildSessionRow {
   sessionId: number
   eventId: number
-  eventType: EventType
+  eventType: EventType | null
   eventName: string
   startedAt: string
   endedAt: string | null
@@ -307,7 +307,7 @@ function onTuneDeleted(tune: TuneRow) {
           :key="session.sessionId"
         >
           <NuxtLink
-            :to="`/events/${session.eventType}/${session.eventId}/${session.sessionId}`"
+            :to="`/events/${session.eventId}/${session.sessionId}`"
             class="group flex items-center justify-between gap-3 card p-4 transition-colors hover:border-zinc-600 hover:bg-zinc-900/60"
           >
             <div class="min-w-0 font-mono">
@@ -315,7 +315,10 @@ function onTuneDeleted(tune: TuneRow) {
                 {{ session.eventName }}
               </div>
               <div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                <span class="rounded-sm border border-zinc-800 px-1.5 py-0.5 text-zinc-400">
+                <span
+                  v-if="session.eventType"
+                  class="rounded-sm border border-zinc-800 px-1.5 py-0.5 text-zinc-400"
+                >
                   {{ EVENT_TYPE_LABELS[session.eventType] }}
                 </span>
                 <span>{{ session.lapCount }} lap{{ session.lapCount === 1 ? '' : 's' }}</span>

@@ -6,13 +6,18 @@ const open = defineModel<boolean>('open', { required: true })
 interface EventRow {
   id: number
   name: string
-  type: EventType
+  type: EventType | null
   createdAt: number | string
   bestLapMs: number | null
   lastDrivenAt: number | string | null
 }
 
 const { startRecording, lastError, clearError } = useRecording()
+// The active game (workspace) the recording is tagged with. Forza Horizon has
+// the discipline taxonomy (rally/touge/…); every other sim is "simple mode":
+// an event is just a track/race name, recorded with no discipline tag.
+const { gameId, capabilities } = useGame()
+const simpleMode = computed(() => !capabilities.value.tuning)
 
 const step = ref<'type' | 'event'>('type')
 const selectedType = ref<EventType | null>(null)
@@ -46,47 +51,56 @@ function close() {
 }
 
 watch(open, (v) => {
-  if (v) {
-    reset()
-    clearError()
+  if (!v) return
+  reset()
+  clearError()
+  // Simple mode skips the discipline step: list all the game's events and let
+  // the user pick or create one by name (no discipline tag).
+  if (simpleMode.value) {
+    step.value = 'event'
+    void loadEvents(null)
   }
 })
+
+async function loadEvents(t: EventType | null) {
+  loadingEvents.value = true
+  localError.value = null
+  try {
+    const query = t ? { type: t, gameId: gameId.value } : { gameId: gameId.value }
+    eventsForType.value = await $fetch<EventRow[]>('/api/events', { query })
+  } catch (err) {
+    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
+    localError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'failed to load events'
+  } finally {
+    loadingEvents.value = false
+  }
+}
 
 async function pickType(t: EventType) {
   selectedType.value = t
   step.value = 'event'
   selectedEventId.value = null
   newEventName.value = ''
-  loadingEvents.value = true
-  localError.value = null
-  try {
-    eventsForType.value = await $fetch<EventRow[]>('/api/events', { query: { type: t } })
-  } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, message?: string }
-    localError.value = e.data?.statusMessage ?? e.message ?? 'failed to load events'
-  } finally {
-    loadingEvents.value = false
-  }
+  await loadEvents(t)
 }
 
 async function createAndStart() {
-  if (!selectedType.value) return
   const name = newEventName.value.trim()
   if (!name) return
   creating.value = true
   localError.value = null
   try {
-    const created = await $fetch<EventRow>('/api/events', {
-      method: 'POST',
-      body: { name, type: selectedType.value }
-    })
+    // Forza tags a discipline (selectedType from the tile step); other sims omit it.
+    const body: Record<string, unknown> = { name, gameId: gameId.value }
+    if (selectedType.value) body.type = selectedType.value
+    const created = await $fetch<EventRow>('/api/events', { method: 'POST', body })
     selectedEventId.value = created.id
     eventsForType.value = [...eventsForType.value, created]
     newEventName.value = ''
     await startAndClose()
   } catch (err) {
-    const e = err as { data?: { statusMessage?: string }, message?: string }
-    localError.value = e.data?.statusMessage ?? e.message ?? 'create failed'
+    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
+    localError.value = e.data?.statusMessage ?? e.statusMessage ?? e.message ?? 'create failed'
   } finally {
     creating.value = false
   }
@@ -127,12 +141,21 @@ function back() {
   newEventName.value = ''
   eventsForType.value = []
 }
+
+// Heading for the event step: a plain "Quick record" for the name-only flow,
+// the Forza event-type label otherwise.
+const eventStepTitle = computed(() => (simpleMode.value ? 'Quick record' : EVENT_TYPE_LABELS[selectedType.value ?? 'race']))
+const newEventPlaceholder = computed(() =>
+  simpleMode.value
+    ? 'e.g. Spa-Francorchamps'
+    : `new ${EVENT_TYPE_LABELS[selectedType.value ?? 'race'].toLowerCase()} event`
+)
 </script>
 
 <template>
   <UiModal
     :open="open"
-    :title="step === 'type' ? 'Quick record' : EVENT_TYPE_LABELS[selectedType!]"
+    :title="step === 'type' ? 'Quick record' : eventStepTitle"
     size="lg"
     @close="close"
   >
@@ -142,7 +165,7 @@ function back() {
           Quick record
         </div>
         <h2 class="mt-1 text-xl text-zinc-100">
-          {{ step === 'type' ? 'Pick a type' : EVENT_TYPE_LABELS[selectedType!] }}
+          {{ step === 'type' ? 'Pick a type' : eventStepTitle }}
         </h2>
       </div>
       <UButton
@@ -155,7 +178,7 @@ function back() {
       />
     </header>
 
-    <!-- Step 1: type tiles -->
+    <!-- Step 1: type tiles (Forza only — simple mode jumps to the name step) -->
     <div
       v-if="step === 'type'"
       class="grid grid-cols-2 gap-2 sm:grid-cols-3"
@@ -178,6 +201,7 @@ function back() {
       class="space-y-3"
     >
       <UButton
+        v-if="!simpleMode"
         label="← back to types"
         color="neutral"
         variant="link"
@@ -218,7 +242,7 @@ function back() {
         >
           <UInput
             v-model="newEventName"
-            :placeholder="`new ${EVENT_TYPE_LABELS[selectedType!].toLowerCase()} event`"
+            :placeholder="newEventPlaceholder"
             :disabled="creating || submitting"
             class="flex-1"
             :ui="{ base: 'text-sm' }"
@@ -236,11 +260,11 @@ function back() {
 
       <div class="space-y-1">
         <div class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-          Tune label (optional)
+          {{ simpleMode ? 'Label (optional)' : 'Tune label (optional)' }}
         </div>
         <UInput
           v-model="tuneLabel"
-          placeholder="e.g. race build v2"
+          :placeholder="simpleMode ? 'e.g. soft tyres, qualifying sim' : 'e.g. race build v2'"
           :disabled="creating || submitting"
           class="w-full"
           :ui="{ base: 'text-sm' }"

@@ -29,6 +29,20 @@
       "when": 1779354945580,
       "tag": "0003_real_sugar_man",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1780742006000,
+      "tag": "0004_greedy_stick",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1780815375129,
+      "tag": "0005_free_grim_reaper",
+      "breakpoints": true
     }
   ]
 }

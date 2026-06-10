@@ -11,7 +11,12 @@
  * `Telemetry` model.
  */
 
-export type GameId = 'fh6' | 'fh5' | 'fm' | 'f1' | 'pcars2' | 'ams2'
+/** Every supported game id, as a runtime tuple. Single source of truth for the
+ *  `GameId` union *and* the DB column enum (server/db/schema.ts imports this so
+ *  cars/events/sessions are typed to the same set). Order is display order. */
+export const GAME_IDS = ['fh6', 'fh5', 'fm', 'f1', 'pcars2', 'ams2'] as const
+
+export type GameId = typeof GAME_IDS[number]
 
 /**
  * Feature areas that vary by game. The tuning stack (builds, tunes, events,
@@ -91,5 +96,5 @@ export function getGame(id: GameId): GameDef {
 }
 
 export function isGameId(value: unknown): value is GameId {
-  return typeof value === 'string' && GAMES.some(g => g.id === value)
+  return typeof value === 'string' && (GAME_IDS as readonly string[]).includes(value)
 }

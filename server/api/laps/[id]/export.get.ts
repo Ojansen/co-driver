@@ -33,6 +33,7 @@ export default defineEventHandler(async (event) => {
   const row = (await db
     .select({
       lap: schema.laps,
+      gameId: schema.sessions.gameId,
       tuneLabel: schema.sessions.tuneLabel,
       piAtStart: schema.sessions.piAtStart,
       startedAt: schema.sessions.startedAt,
@@ -63,6 +64,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const meta: LapMeta = {
+    gameId: row.gameId,
     event: { name: row.eventName, type: row.eventType },
     car: { ordinal: row.carOrdinal, class: row.carClass, displayName: row.carDisplayName },
     build: row.buildName ? { name: row.buildName, settings: row.buildSettings } : null,

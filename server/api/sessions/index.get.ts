@@ -1,16 +1,23 @@
 import { asc, desc, eq, inArray } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
+import { isGameId } from '#shared/games'
 
 /**
  * Every recorded session with its car + event context and a thin lap list,
  * newest first. Feeds the Transfer page, which groups these by car and exposes
  * per-lap export. Laps are fetched in one batched query and grouped in JS to
  * avoid the row fan-out of a session⋈lap join.
+ *
+ * Scoped to the active game (workspace) via ?gameId; omitted → all games.
  */
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
+  const query = getQuery(event)
+  const gameFilter = typeof query.gameId === 'string' && isGameId(query.gameId) ? query.gameId : null
+
   const sessions = await db
     .select({
       sessionId: schema.sessions.id,
+      gameId: schema.sessions.gameId,
       carId: schema.sessions.carId,
       carOrdinal: schema.cars.ordinal,
       carClass: schema.cars.class,
@@ -26,6 +33,7 @@ export default defineEventHandler(async () => {
     .from(schema.sessions)
     .innerJoin(schema.events, eq(schema.events.id, schema.sessions.eventId))
     .innerJoin(schema.cars, eq(schema.cars.id, schema.sessions.carId))
+    .where(gameFilter ? eq(schema.sessions.gameId, gameFilter) : undefined)
     .orderBy(desc(schema.sessions.startedAt))
 
   if (sessions.length === 0) return []

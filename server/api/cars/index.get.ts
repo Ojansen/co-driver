@@ -19,6 +19,9 @@ export default defineEventHandler(async () => {
     .from(schema.cars)
     .leftJoin(schema.builds, eq(schema.builds.carId, schema.cars.id))
     .leftJoin(schema.sessions, eq(schema.sessions.carId, schema.cars.id))
+    // The garage / build-tune stack is FH6-only; an ordinal is only unique
+    // within a game, so scope to fh6 to avoid surfacing other sims' cars.
+    .where(eq(schema.cars.gameId, 'fh6'))
     .groupBy(schema.cars.id)
     .orderBy(schema.cars.id)
 

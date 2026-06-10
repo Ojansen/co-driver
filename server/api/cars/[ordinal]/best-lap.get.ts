@@ -1,5 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
+import { DEFAULT_GAME_ID, isGameId } from '#shared/games'
 import { decodeFrames } from '~~/server/utils/frames-codec'
 
 /**
@@ -26,8 +27,12 @@ export default defineEventHandler(async (event) => {
     }
     eventIdFilter = parsed
   }
+  // Cars are namespaced per game; scope to the active game (default fh6) so the
+  // hotlap PB reference resolves for every sim, not just Forza.
+  const gameId = typeof query.gameId === 'string' && isGameId(query.gameId) ? query.gameId : DEFAULT_GAME_ID
 
-  const car = (await db.select().from(schema.cars).where(eq(schema.cars.ordinal, ordinal)).limit(1))[0]
+  const car = (await db.select().from(schema.cars)
+    .where(and(eq(schema.cars.gameId, gameId), eq(schema.cars.ordinal, ordinal))).limit(1))[0]
   if (!car) return null
 
   const whereClause = eventIdFilter !== null

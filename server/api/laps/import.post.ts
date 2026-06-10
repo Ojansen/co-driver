@@ -1,13 +1,16 @@
 import { and, eq } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
+import { DEFAULT_GAME_ID, isGameId } from '#shared/games'
 import { eventType, type EventType } from '../../db/schema'
 import { BUNDLE_FORMAT, BUNDLE_VERSION } from '~~/server/utils/lap-export'
 
 /**
  * Import a single-lap co-driver bundle (the `bundle` format from
- * /api/laps/[id]/export). Merges by identity: cars dedupe on ordinal, events on
- * (name,type), builds on (carId,name), tunes on (buildId,name), sessions on
- * (eventId,carId,startedAt), and the lap on (sessionId,lapNumber). Anything
+ * /api/laps/[id]/export). Merges by identity: cars dedupe on (gameId,ordinal),
+ * events on (gameId,name) — the bundle's optional `type` is only applied when
+ * creating a new event, not when reusing an existing one — builds on
+ * (carId,name), tunes on (buildId,name), sessions on (eventId,carId,startedAt),
+ * and the lap on (sessionId,lapNumber). Anything
  * already present is reused, not duplicated, so re-importing the same bundle is
  * idempotent. The frames blob is written back verbatim — it was carried base64
  * and never re-encoded.
@@ -15,6 +18,7 @@ import { BUNDLE_FORMAT, BUNDLE_VERSION } from '~~/server/utils/lap-export'
 interface Bundle {
   format?: unknown
   version?: unknown
+  gameId?: unknown
   event?: { name?: unknown, type?: unknown }
   car?: { ordinal?: unknown, class?: unknown, displayName?: unknown }
   build?: { name?: unknown, settings?: unknown } | null
@@ -49,11 +53,17 @@ export default defineEventHandler(async (event) => {
 
   const ev = b.event
   if (!ev || typeof ev.name !== 'string' || !ev.name.trim()) bad('event.name required')
-  if (typeof ev.type !== 'string' || !(eventType as readonly string[]).includes(ev.type)) {
-    bad(`event.type must be one of: ${eventType.join(', ')}`)
+  // `type` is an optional discipline tag; validate only when present.
+  let evType: EventType | null = null
+  if (ev.type != null) {
+    if (typeof ev.type !== 'string' || !(eventType as readonly string[]).includes(ev.type)) {
+      bad(`event.type, if given, must be one of: ${eventType.join(', ')}`)
+    }
+    evType = ev.type as EventType
   }
   const eventName = ev.name.trim()
-  const evType = ev.type as EventType
+  // Legacy bundles (exported before multi-game) carry no gameId → FH6.
+  const gameId = isGameId(b.gameId) ? b.gameId : DEFAULT_GAME_ID
 
   const car = b.car
   if (!car || !Number.isInteger(car.ordinal) || !Number.isInteger(car.class)) {
@@ -82,18 +92,19 @@ export default defineEventHandler(async (event) => {
   return await db.transaction(async (tx) => {
     const created = { car: false, event: false, build: false, tune: false, session: false }
 
-    // car — by ordinal
-    let carRow = (await tx.select().from(schema.cars).where(eq(schema.cars.ordinal, carOrdinal)).limit(1))[0]
+    // car — by (gameId, ordinal); per-game catalog
+    let carRow = (await tx.select().from(schema.cars)
+      .where(and(eq(schema.cars.gameId, gameId), eq(schema.cars.ordinal, carOrdinal))).limit(1))[0]
     if (!carRow) {
-      carRow = (await tx.insert(schema.cars).values({ ordinal: carOrdinal, class: carClass, displayName: carDisplayName }).returning())[0]!
+      carRow = (await tx.insert(schema.cars).values({ gameId, ordinal: carOrdinal, class: carClass, displayName: carDisplayName }).returning())[0]!
       created.car = true
     }
 
-    // event — by (name, type)
+    // event — by (gameId, name); type is optional discipline metadata
     let eventRow = (await tx.select().from(schema.events)
-      .where(and(eq(schema.events.name, eventName), eq(schema.events.type, evType))).limit(1))[0]
+      .where(and(eq(schema.events.gameId, gameId), eq(schema.events.name, eventName))).limit(1))[0]
     if (!eventRow) {
-      eventRow = (await tx.insert(schema.events).values({ name: eventName, type: evType }).returning())[0]!
+      eventRow = (await tx.insert(schema.events).values({ gameId, name: eventName, type: evType }).returning())[0]!
       created.event = true
     }
 
@@ -131,6 +142,7 @@ export default defineEventHandler(async (event) => {
     let sessionRow = sameEventCar.find(s => s.startedAt.getTime() === startedAt.getTime())
     if (!sessionRow) {
       sessionRow = (await tx.insert(schema.sessions).values({
+        gameId,
         eventId: eventRow.id,
         carId: carRow.id,
         tuneLabel: typeof sess.tuneLabel === 'string' ? sess.tuneLabel : null,

@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import { EVENT_TYPE_LABELS, isEventType, type EventType } from '~/utils/event-types'
+import { EVENT_TYPE_LABELS, type EventType } from '~/utils/event-types'
 import { formatLap } from '~/utils/format'
 
 const route = useRoute()
-const typeParam = String(route.params.type ?? '')
 const idParam = Number(route.params.id)
 
-if (!isEventType(typeParam) || !Number.isInteger(idParam) || idParam <= 0) {
+if (!Number.isInteger(idParam) || idParam <= 0) {
   throw createError({ statusCode: 404, statusMessage: 'not found' })
 }
-const eventTypeKey = typeParam as EventType
 const eventId = idParam
 
 interface SessionRow {
@@ -27,7 +25,7 @@ interface SessionRow {
   lapCount: number
 }
 interface EventDetail {
-  event: { id: number, name: string, type: EventType, createdAt: number | string }
+  event: { id: number, name: string, type: EventType | null, createdAt: number | string }
   sessions: SessionRow[]
 }
 
@@ -55,7 +53,7 @@ async function startAndGoLive() {
 }
 
 function openSession(sessionId: number) {
-  return navigateTo(`/events/${eventTypeKey}/${eventId}/${sessionId}`)
+  return navigateTo(`/events/${eventId}/${sessionId}`)
 }
 
 // Compare: pick the best laps you want to overlay. The compare page overlays
@@ -87,7 +85,7 @@ async function goCompare() {
   // the reference, the second the focus.
   const laps = [...selectedLapIds.value]
   await navigateTo({
-    path: `/events/${eventTypeKey}/${eventId}/compare`,
+    path: `/events/${eventId}/compare`,
     query: { laps: laps.join(','), ref: laps[0]!, focus: laps[1]! }
   })
 }
@@ -99,13 +97,44 @@ const cascadeLaps = computed(() =>
 )
 
 function onDeleted() {
-  return navigateTo(`/events/${eventTypeKey}`)
+  return navigateTo('/events')
+}
+
+// Rename (the U in CRUD). PATCH /api/events/[id] re-checks (gameId, name)
+// uniqueness server-side; on success patch the local copy so the header updates.
+async function renameEvent(next: string | null) {
+  const name = (next ?? '').trim()
+  if (!name || !data.value || name === data.value.event.name) return
+  const updated = await $fetch<{ name: string }>(`/api/events/${eventId}`, {
+    method: 'PATCH',
+    body: { name }
+  })
+  data.value.event.name = updated.name
 }
 </script>
 
 <template>
   <main class="container mx-auto max-w-6xl px-6 py-10">
     <PageHeader :title="data?.event.name ?? ''">
+      <template #title>
+        <InlineEdit
+          :value="data?.event.name ?? ''"
+          placeholder="event name"
+          :save="renameEvent"
+          autosave-on-blur
+        >
+          <template #display="{ edit }">
+            <button
+              type="button"
+              class="rounded-sm text-left transition-colors hover:text-zinc-300"
+              title="Click to rename"
+              @click="edit"
+            >
+              {{ data?.event.name }}
+            </button>
+          </template>
+        </InlineEdit>
+      </template>
       <template #eyebrow>
         <NuxtLink
           to="/events"
@@ -114,14 +143,15 @@ function onDeleted() {
           Events
         </NuxtLink>
         <span class="text-zinc-700">/</span>
-        <NuxtLink
-          :to="`/events/${eventTypeKey}`"
-          class="hover:text-zinc-300"
-        >
-          {{ EVENT_TYPE_LABELS[eventTypeKey] }}
-        </NuxtLink>
-        <span class="text-zinc-700">/</span>
         <span class="text-zinc-300">{{ data?.event.name }}</span>
+      </template>
+      <template
+        v-if="data?.event.type"
+        #meta
+      >
+        <span class="rounded-sm bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-400">
+          {{ EVENT_TYPE_LABELS[data.event.type] }}
+        </span>
       </template>
       <template #actions>
         <DeleteAction

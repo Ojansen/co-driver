@@ -1,22 +1,19 @@
 <script setup lang="ts">
-import { EVENT_TYPE_LABELS, isEventType, type EventType } from '~/utils/event-types'
+import type { EventType } from '~/utils/event-types'
 import { formatLap } from '~/utils/format'
-import type { Telemetry } from '../../../../../server/utils/decode'
+import type { Telemetry } from '../../../../server/utils/decode'
 import type { BuildSettings } from '~/utils/build-fields'
 
 const route = useRoute()
-const typeParam = String(route.params.type ?? '')
 const eventIdParam = Number(route.params.id)
 const sessionIdParam = Number(route.params.sessionId)
 
 if (
-  !isEventType(typeParam)
-  || !Number.isInteger(eventIdParam) || eventIdParam <= 0
+  !Number.isInteger(eventIdParam) || eventIdParam <= 0
   || !Number.isInteger(sessionIdParam) || sessionIdParam <= 0
 ) {
   throw createError({ statusCode: 404, statusMessage: 'not found' })
 }
-const eventTypeKey = typeParam as EventType
 const eventId = eventIdParam
 const sessionId = sessionIdParam
 
@@ -24,7 +21,7 @@ interface SessionRow {
   sessionId: number
   eventId: number
   eventName: string
-  eventType: EventType
+  eventType: EventType | null
   carId: number
   carOrdinal: number
   carClass: number
@@ -54,6 +51,12 @@ const { data, error } = await useFetch<SessionDetail>(`/api/sessions/${sessionId
 if (error.value || !data.value) {
   throw createError({ statusCode: 404, statusMessage: 'session not found' })
 }
+// Guard the URL ↔ data binding: a session reached under the wrong event id
+// (hand-edited URL, or an event from another game) must not render under this
+// event's breadcrumb. Mirrors the per-lap check in compare.vue.
+if (data.value.session.eventId !== eventId) {
+  throw createError({ statusCode: 404, statusMessage: 'session not found in this event' })
+}
 
 interface TrailBrakingLap {
   lapNumber: number
@@ -65,10 +68,13 @@ interface TrailBrakingResponse {
   laps: TrailBrakingLap[]
 }
 
-// Skip trail-braking UI entirely for non-lap-based event types — drag and
-// freeroam don't have meaningful corner-entry phases to detect.
-const SECTOR_LIKE_TYPES: readonly EventType[] = ['race', 'street_race', 'touge', 'rally', 'cross_country', 'custom']
-const hasTrailBraking = SECTOR_LIKE_TYPES.includes(eventTypeKey)
+// Trail-braking + sectors apply to circuit/road racing, not point-to-point or
+// drag runs. Gate by the event's discipline when it's set (Forza): only
+// drag/freeroam opt out. A null discipline (non-Forza sims = circuit racing)
+// keeps them ON.
+const NON_SECTOR_TYPES: readonly EventType[] = ['drag', 'freeroam']
+const sessionType = data.value.session.eventType
+const hasTrailBraking = !(sessionType && NON_SECTOR_TYPES.includes(sessionType))
 
 const { data: trailBrakingData } = hasTrailBraking
   ? await useFetch<TrailBrakingResponse>(`/api/sessions/${sessionId}/trail-braking`)
@@ -270,7 +276,7 @@ const bestLapMs = computed(() => {
 const cascadeLaps = computed(() => data.value?.laps.length ?? 0)
 
 function onDeleted() {
-  return navigateTo(`/events/${eventTypeKey}/${eventId}`)
+  return navigateTo(`/events/${eventId}`)
 }
 </script>
 
@@ -286,14 +292,7 @@ function onDeleted() {
         </NuxtLink>
         <span class="text-zinc-700">/</span>
         <NuxtLink
-          :to="`/events/${eventTypeKey}`"
-          class="hover:text-zinc-300"
-        >
-          {{ EVENT_TYPE_LABELS[eventTypeKey] }}
-        </NuxtLink>
-        <span class="text-zinc-700">/</span>
-        <NuxtLink
-          :to="`/events/${eventTypeKey}/${eventId}`"
+          :to="`/events/${eventId}`"
           class="hover:text-zinc-300"
         >
           {{ data?.session.eventName }}

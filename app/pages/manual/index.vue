@@ -31,7 +31,7 @@ const surfaces: Surface[] = [
   {
     slug: 'compare',
     title: 'Compare',
-    page: '/events/<type>/<id>/compare',
+    page: '/events/<id>/compare',
     blurb: 'Side-by-side two laps from the same event. The glass-box "what changed" view.',
     graphs: ['Δ TIME (continuous delta-time vs distance)', 'Track map overlay (A · B)', 'A vs B damper histograms', 'A vs B damper scatter', 'A vs B ride-height histograms', 'A vs B dyno curves', 'A vs B slip-angle balance', 'A vs B tire temperature', 'Sector times + min-speed tables', 'Setup diff']
   },

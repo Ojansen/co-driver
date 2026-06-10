@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
 
 interface PostBody {
@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
   const car = (await db
     .select({ id: schema.cars.id })
     .from(schema.cars)
-    .where(eq(schema.cars.ordinal, ordinal))
+    .where(and(eq(schema.cars.gameId, 'fh6'), eq(schema.cars.ordinal, ordinal)))
     .limit(1))[0]
 
   if (!car) {

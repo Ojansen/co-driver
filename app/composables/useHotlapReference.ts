@@ -102,13 +102,15 @@ function resetCurrentLap(): void {
 // reference. A subsequent session-best lap supplants it the moment the
 // driver beats it. Best-effort — fetch failures stay silent so a dead
 // server never blocks the page from working.
-async function installPBReference(carOrdinal: number, eventId: number): Promise<void> {
+async function installPBReference(carOrdinal: number, eventId: number, gameId: string): Promise<void> {
   if (referenceLap.value !== null) return
   let res: PBLapResponse | null
   try {
     res = await $fetch<PBLapResponse | null>(
       `/api/cars/${carOrdinal}/best-lap`,
-      { query: { eventId } }
+      // gameId scopes the per-game car catalog — without it non-Forza sims
+      // resolve no car and the reference silently falls back to session-best.
+      { query: { eventId, gameId } }
     )
   } catch {
     return
@@ -147,6 +149,9 @@ function ensureInstalled(): void {
   // so onBeforeUnmount registers against the first calling component.
   const { telemetry } = useTelemetry()
   const { recording } = useRecording()
+  // Active game (workspace) — scopes the PB reference lookup to the right
+  // per-game car catalog. The recording is tagged with this same game.
+  const { gameId } = useGame()
 
   // Detached scope: watchers must outlive the first calling component, or
   // the singleton state would still survive but stop updating after the
@@ -241,7 +246,7 @@ function ensureInstalled(): void {
 
     watch(recording, (r) => {
       if (r.state !== 'recording') return
-      void installPBReference(r.carOrdinal, r.eventId)
+      void installPBReference(r.carOrdinal, r.eventId, gameId.value)
     }, { immediate: true })
   })
 }

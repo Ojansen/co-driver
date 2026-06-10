@@ -35,8 +35,9 @@
  * the car's previous session.
  */
 
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
+import type { GameId } from '#shared/games'
 import type { EventType } from './../db/schema'
 import type { Telemetry } from './decode'
 import { decodeFrame, encodeFrame, encodeFramesAsync } from './frames-codec'
@@ -57,8 +58,9 @@ const LAP_START_EPSILON_S = 2
 
 interface RecordingContext {
   sessionId: number
+  gameId: GameId
   eventId: number
-  eventType: EventType
+  eventType: EventType | null
   carId: number
   carOrdinal: number
   carDisplayName: string | null
@@ -126,12 +128,12 @@ export class Recorder {
     }
   }
 
-  async start(eventId: number, tuneLabel: string | null = null): Promise<RecordingState> {
+  async start(gameId: GameId, eventId: number, tuneLabel: string | null = null): Promise<RecordingState> {
     if (this.ctx) return this.getState()
     const frame = this.lastLiveFrame
     if (!frame) {
       if (!this.latestFrame) {
-        throw new Error('No telemetry frame received yet — is Forza running with Data Out enabled?')
+        throw new Error('No telemetry frame received yet — is the game running with telemetry output enabled?')
       }
       throw new Error('Waiting for car identity — start your race in-game first (paused/pre-race packets carry ordinal 0)')
     }
@@ -140,12 +142,19 @@ export class Recorder {
     if (!event) {
       throw new Error(`Unknown event id ${eventId}`)
     }
-    const eventType = event.type as EventType
+    // An event belongs to one game; recording it under a different active game
+    // would mislabel the session (and bind the wrong per-game car catalog).
+    if (event.gameId !== gameId) {
+      throw new Error(`Event ${eventId} belongs to ${event.gameId}, not the active game ${gameId}`)
+    }
+    const eventType = event.type
 
+    // Cars are namespaced per game — an ordinal is only unique within a game.
     const ordinal = frame.car.ordinal
-    const existingCar = (await db.select().from(schema.cars).where(eq(schema.cars.ordinal, ordinal)).limit(1))[0]
+    const existingCar = (await db.select().from(schema.cars)
+      .where(and(eq(schema.cars.gameId, gameId), eq(schema.cars.ordinal, ordinal))).limit(1))[0]
     const car = existingCar ?? (await db.insert(schema.cars)
-      .values({ ordinal, class: frame.car.class })
+      .values({ gameId, ordinal, class: frame.car.class })
       .returning())[0]!
 
     const prevSession = (await db.select()
@@ -157,6 +166,7 @@ export class Recorder {
     const startedAt = new Date()
     const session = (await db.insert(schema.sessions)
       .values({
+        gameId,
         eventId,
         carId: car.id,
         tuneLabel,
@@ -167,6 +177,7 @@ export class Recorder {
 
     this.ctx = {
       sessionId: session.id,
+      gameId,
       eventId,
       eventType,
       carId: car.id,
@@ -225,7 +236,9 @@ export class Recorder {
     const idle: RecordingState = { state: 'idle' }
     forzaBus.emit('recording_state', idle)
 
-    if (ctx.previousPi !== null && ctx.previousPi !== ctx.piAtStart) {
+    // PI (performance index) is a Forza concept; only FH6 has the tuning stack
+    // a PI-shift prompt feeds into. Skip it for other sims.
+    if (ctx.gameId === 'fh6' && ctx.previousPi !== null && ctx.previousPi !== ctx.piAtStart) {
       const prompt: TunePrompt = {
         sessionId: ctx.sessionId,
         carOrdinal: ctx.carOrdinal,

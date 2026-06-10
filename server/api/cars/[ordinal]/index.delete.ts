@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { db, schema } from 'hub:db'
 import { recorder } from '~~/server/utils/recorder'
 
@@ -12,7 +12,7 @@ export default defineEventHandler(async (event) => {
   const existing = (await db
     .select({ id: schema.cars.id })
     .from(schema.cars)
-    .where(eq(schema.cars.ordinal, ordinal))
+    .where(and(eq(schema.cars.gameId, 'fh6'), eq(schema.cars.ordinal, ordinal)))
     .limit(1))[0]
   if (!existing) {
     throw createError({ statusCode: 404, statusMessage: 'car not found' })

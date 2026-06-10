@@ -10,6 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { GameId } from '../../shared/games'
 import type { EventType } from '../../server/db/schema'
 import type { Telemetry, Quad } from '../../server/utils/decode'
 import { decodeFrames } from '../../server/utils/frames-codec'
@@ -17,18 +18,32 @@ import { decodeFrames } from '../../server/utils/frames-codec'
 const { dbState, schemaRefs } = vi.hoisted(() => {
   const dbState = {
     eventType: 'race' as EventType,
+    // The game the (mocked) event + active recording belong to. start() now
+    // verifies the event's gameId matches the active game and tags the car +
+    // session with it.
+    gameId: 'fh6' as GameId,
     eventId: 1,
+    // When false the cars lookup returns empty so start() takes the insert
+    // path — used to assert the new car is created under the right gameId.
+    carExists: true,
+    // Seeds the prior-session PI for the PI-shift prompt tests; null = no prior.
+    previousPi: null as number | null,
     nextSessionId: 1,
     nextLapId: 1,
     sessionsInserted: [] as Array<Record<string, unknown> & { id: number }>,
     sessionsUpdated: [] as Array<Record<string, unknown>>,
+    carsInserted: [] as Array<Record<string, unknown>>,
     lapsInserted: [] as Array<{ sessionId: number, lapNumber: number, timeMs: number, framesBlob: Buffer }>,
-    reset(eventType: EventType): void {
+    reset(eventType: EventType, gameId: GameId = 'fh6'): void {
       this.eventType = eventType
+      this.gameId = gameId
+      this.carExists = true
+      this.previousPi = null
       this.nextSessionId = 1
       this.nextLapId = 1
       this.sessionsInserted = []
       this.sessionsUpdated = []
+      this.carsInserted = []
       this.lapsInserted = []
     }
   }
@@ -55,12 +70,14 @@ vi.mock('hub:db', async () => {
     chain.limit = () => chain
     chain.then = (resolve: (v: unknown) => void) => {
       if (ctx.table === schema.events) {
-        resolve([{ id: dbState.eventId, name: 'test-event', type: dbState.eventType, createdAt: new Date() }])
+        resolve([{ id: dbState.eventId, gameId: dbState.gameId, name: 'test-event', type: dbState.eventType, createdAt: new Date() }])
       } else if (ctx.table === schema.cars) {
-        resolve([{ id: 1, ordinal: 12345, class: 800, displayName: null }])
+        resolve(dbState.carExists ? [{ id: 1, gameId: dbState.gameId, ordinal: 12345, class: 800, displayName: null }] : [])
       } else if (ctx.table === schema.sessions) {
-        // Previous-session lookup — empty, so no PI shift prompt fires.
-        resolve([])
+        // Previous-session lookup. Empty by default (no PI shift prompt). When
+        // a prior PI is seeded, return it so the FH6 PI-shift prompt path — and
+        // the non-Forza guard that suppresses it — can be exercised.
+        resolve(dbState.previousPi != null ? [{ id: 99, piAtStart: dbState.previousPi, startedAt: new Date() }] : [])
       } else {
         resolve([])
       }
@@ -86,8 +103,11 @@ vi.mock('hub:db', async () => {
         dbState.lapsInserted.push(lap)
         resolve(undefined)
       } else if (ctx.table === schema.cars) {
-        // Unused in tests (we always pre-seed an existing car) but kept for completeness.
-        resolve([{ id: 2, ordinal: (ctx.values?.ordinal as number) ?? 0, class: (ctx.values?.class as number) ?? 0, displayName: null }])
+        // Hit when carExists=false — assert the car is created under the active
+        // game's id (the per-game catalog namespace).
+        const row = { id: 2, gameId: ctx.values?.gameId, ordinal: (ctx.values?.ordinal as number) ?? 0, class: (ctx.values?.class as number) ?? 0, displayName: null }
+        dbState.carsInserted.push(row)
+        resolve([row])
       } else {
         resolve(undefined)
       }
@@ -170,7 +190,7 @@ async function runScenario(eventType: EventType, frames: Telemetry[]): Promise<t
   // subscribes to forzaBus.telemetry, so emitting one frame primes it.
   const recorder = new Recorder()
   forzaBus.emit('telemetry', makeFrame({ lapNumber: 0, isRaceOn: false, timestampMs: 0 }))
-  await recorder.start(1, null)
+  await recorder.start(dbState.gameId, 1, null)
   for (const f of frames) forzaBus.emit('telemetry', f)
   await recorder.stop()
   return dbState.lapsInserted
@@ -315,7 +335,7 @@ describe('recorder — edge cases', () => {
   it('start() before any telemetry → throws', async () => {
     dbState.reset('race')
     const recorder = new Recorder()
-    await expect(recorder.start(1, null)).rejects.toThrow(/Forza running/)
+    await expect(recorder.start('fh6', 1, null)).rejects.toThrow(/telemetry frame/)
   })
 
   it('start() when only paused/pre-race frames seen (ordinal 0) → throws with identity-specific message', async () => {
@@ -331,7 +351,7 @@ describe('recorder — edge cases', () => {
       car: { ordinal: 0, class: 0, pi: 0, drivetrain: 0, cylinders: 0 }
     } as unknown as Telemetry
     forzaBus.emit('telemetry', zeroIdentityFrame)
-    await expect(recorder.start(1, null)).rejects.toThrow(/car identity/)
+    await expect(recorder.start('fh6', 1, null)).rejects.toThrow(/car identity/)
   })
 
   it('start() during pause uses identity from the last live frame', async () => {
@@ -348,7 +368,7 @@ describe('recorder — edge cases', () => {
       car: { ordinal: 0, class: 0, pi: 0, drivetrain: 0, cylinders: 0 }
     } as unknown as Telemetry
     forzaBus.emit('telemetry', paused)
-    await recorder.start(1, null)
+    await recorder.start('fh6', 1, null)
     expect(dbState.sessionsInserted).toHaveLength(1)
     expect(dbState.sessionsInserted[0]!.piAtStart).toBe(745)
   })
@@ -359,5 +379,57 @@ describe('recorder — edge cases', () => {
     await runScenario('race', frames)
     expect(dbState.sessionsUpdated).toHaveLength(1)
     expect(dbState.sessionsUpdated[0]).toHaveProperty('endedAt')
+  })
+})
+
+describe('recorder — multi-game', () => {
+  it('tags the session with the active game and creates the car under that game', async () => {
+    // A non-Forza sim (AMS2). The car ordinal (12345) is the SAME value an FH6
+    // car could carry, but it's created under gameId 'ams2' — the per-game
+    // catalog namespace is how identical ordinals across games stay distinct.
+    dbState.reset('race', 'ams2')
+    dbState.carExists = false // force the create-car path
+    const recorder = new Recorder()
+    forzaBus.emit('telemetry', makeFrame({ lapNumber: 0, isRaceOn: true, timestampMs: 1000 }))
+    await recorder.start('ams2', 1, null)
+    expect(dbState.carsInserted).toHaveLength(1)
+    expect(dbState.carsInserted[0]).toMatchObject({ gameId: 'ams2', ordinal: 12345 })
+    expect(dbState.sessionsInserted).toHaveLength(1)
+    expect(dbState.sessionsInserted[0]!.gameId).toBe('ams2')
+    await recorder.stop()
+  })
+
+  it('start() rejects when the event belongs to a different game', async () => {
+    // Event row is FH6 (dbState.gameId), but the active game is AMS2 — recording
+    // it would mislabel the session and bind the wrong per-game car catalog.
+    dbState.reset('race', 'fh6')
+    const recorder = new Recorder()
+    forzaBus.emit('telemetry', makeFrame({ lapNumber: 0, isRaceOn: true, timestampMs: 1000 }))
+    await expect(recorder.start('ams2', 1, null)).rejects.toThrow(/belongs to/)
+  })
+
+  async function recordWithPriorPi(gameId: GameId, priorPi: number): Promise<boolean> {
+    dbState.reset('race', gameId)
+    dbState.previousPi = priorPi // differs from the frame's pi (745) → a PI shift
+    const recorder = new Recorder()
+    let prompted = false
+    forzaBus.on('tune_prompt', () => {
+      prompted = true
+    })
+    forzaBus.emit('telemetry', makeFrame({ lapNumber: 0, isRaceOn: true, timestampMs: 1000 }))
+    await recorder.start(gameId, 1, null)
+    for (let i = 0; i < 200; i++) forzaBus.emit('telemetry', makeFrame({ lapNumber: 0, isRaceOn: true, timestampMs: 1000 + i * 16 }))
+    await recorder.stop()
+    forzaBus.removeAllListeners('tune_prompt')
+    return prompted
+  }
+
+  it('emits the PI-shift tune prompt for FH6 (positive control)', async () => {
+    expect(await recordWithPriorPi('fh6', 700)).toBe(true)
+  })
+
+  it('skips the PI-shift tune prompt for non-Forza games', async () => {
+    // Same PI shift, but PI is a Forza concept — no prompt for other sims.
+    expect(await recordWithPriorPi('ams2', 700)).toBe(false)
   })
 })

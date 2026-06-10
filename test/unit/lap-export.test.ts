@@ -28,6 +28,7 @@ function frame(i: number): Telemetry {
 }
 
 const meta: LapMeta = {
+  gameId: 'fh6',
   event: { name: 'Goliath', type: 'cross_country' },
   car: { ordinal: 1234, class: 5, displayName: 'Test Car' },
   build: { name: 'S2', settings: { tires: 'race' } },
@@ -136,6 +137,7 @@ describe('toBundle', () => {
 
     expect(bundle.format).toBe(BUNDLE_FORMAT)
     expect(bundle.version).toBe(BUNDLE_VERSION)
+    expect(bundle.gameId).toBe('fh6')
 
     const lap = bundle.lap as { framesB64: string, lapNumber: number, timeMs: number }
     expect(lap.lapNumber).toBe(2)
